@@ -1,501 +1,658 @@
-/* Spotter — main screens (Today, Journey, Food), the plan reveal, sheets and celebrations. */
+/* Spotter — screens. Four tabs (Today, Train, Eat, Coach), search, and the sheets that hold
+   the detail. Today shows only what matters now; everything else is one tap away. */
 (function () {
   'use strict';
   const App = window.App;
   const D = window.SpotterData;
   const E = App.E;
-  const { esc, icon, art, today, addDays, weekStart, dow, rel, fmtDate, diffDays, DOW } = App;
+  const { esc, icon, art, today, addDays, weekStart, rel, fmtDate, diffDays, DOW, DOW_LONG } = App;
   const S = () => App.S;
 
-  // ── Shared bits ───────────────────────────────────────────────────────────
-  const TONE_HERO = { blue: '', red: ' hero--red', green: ' hero--green', yellow: ' hero--yellow', ink: ' hero--ink' };
-  function ring(pct, color, label, small) {
-    const C = 2 * Math.PI * 34;
-    const off = C * (1 - App.clamp(pct, 0, 1));
-    return '<div class="ring"><svg viewBox="0 0 84 84"><circle class="ring__track" cx="42" cy="42" r="34" stroke-width="9"/>' +
-      '<circle class="ring__bar" cx="42" cy="42" r="34" stroke-width="9" stroke="' + color + '" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + C.toFixed(1) + '" data-ring="' + off.toFixed(1) + '"/></svg>' +
-      '<div class="ring__label"><span>' + label + (small ? '<small>' + small + '</small>' : '') + '</span></div></div>';
+  // ── Building blocks ───────────────────────────────────────────────────────
+  const chev = () => icon('right', 'cell__chev');
+  function tile(ic, bg) { return '<span class="cell__tile ' + bg + '">' + icon(ic) + '</span>'; }
+  function cell(o) {
+    const tag = o.act ? 'button' : 'div';
+    const lead = o.tile ? tile(o.tile[0], o.tile[1]) : o.art ? '<span class="cell__tile cell__tile--art">' + art(o.art) + '</span>' : (o.lead || '');
+    return '<' + tag + ' class="cell' + (o.cls ? ' ' + o.cls : '') + '"' + (o.act ? ' data-act="' + o.act + '"' + (o.v != null ? ' data-v="' + esc(o.v) + '"' : '') : '') + (o.attrs || '') + '>' + lead +
+      '<span class="cell__main"><span class="cell__title">' + o.title + '</span>' + (o.sub ? '<span class="cell__sub">' + o.sub + '</span>' : '') + '</span>' +
+      (o.value != null && o.value !== '' ? '<span class="cell__value">' + o.value + '</span>' : '') + (o.trail || '') + (o.act && o.chev !== false ? chev() : '') + '</' + tag + '>';
   }
-  function miniPlate(color, done) {
-    return '<svg class="day__mark" viewBox="0 0 20 20" aria-hidden="true">' + (done
-      ? '<circle cx="10" cy="10" r="9" fill="' + color + '"/><circle cx="10" cy="10" r="2.6" fill="var(--card)"/>'
-      : '<circle cx="10" cy="10" r="8" fill="none" stroke="' + color + '" stroke-width="2.2" stroke-dasharray="3 2.5"/><circle cx="10" cy="10" r="2.4" fill="' + color + '"/>') + '</svg>';
+  function group(cells, tiles) { const c = cells.filter(Boolean); return c.length ? '<div class="group' + (tiles ? ' group--tiles' : '') + '">' + c.join('') + '</div>' : ''; }
+  function sec(title, aside, inner) { return '<section class="sec"><div class="sec__h"><h2 class="sec__title">' + title + '</h2>' + (aside || '') + '</div>' + inner + '</section>'; }
+  // Disclosure rows: the app's dropdowns. Open state lives for the session.
+  App.discOpen = App.discOpen || {};
+  function disc(id, head, panel, openByDefault) {
+    const open = App.discOpen[id] != null ? App.discOpen[id] : !!openByDefault;
+    return '<div class="disc' + (open ? ' is-open' : '') + '" data-disc="' + esc(id) + '">' + head.replace('<button class="cell', '<button aria-expanded="' + open + '" class="cell disc__btn') + '<div class="disc__panel">' + panel + '</div></div>';
   }
-  function exLine(e) {
-    const ex = D.EX[e.id];
-    const meta = ex.unit === 'kg' ? e.sets + ' sets × ' + ex.reps.join('–') + ' reps' : ex.unit === 'sec' ? e.sets + ' × ' + ex.reps.join('–') + ' s hold' : ex.unit === 'reps' ? e.sets + ' sets × ' + ex.reps.join('–') + (ex.perSide ? ' each side' : ' reps') : e.min + ' min';
-    return '<div class="ex-line"><span class="ex-line__art">' + art(ex.art) + '</span><span class="grow"><span class="ex-line__name">' + esc(ex.name) + '</span><br><span class="ex-line__meta">' + esc(ex.focus || '') + ' · ' + meta + '</span></span></div>';
-  }
-  function firstName() { const p = S().profile; return p && p.name ? p.name.split(' ')[0] : 'there'; }
-  function checkinButtons(date, inHero) {
-    const cur = S().food[date] && S().food[date].s;
-    const opts = [['on', 'On track', 'smile'], ['part', 'Partly', 'meh'], ['off', 'Off track', 'frown']];
-    return '<div class="checkin' + (inHero ? ' hero__inline' : '') + '">' + opts.map((o) =>
-      '<button class="checkin__btn' + (cur === o[0] ? ' is-on' : '') + '" data-act="foodCheck" data-v="' + date + '|' + o[0] + '" data-vv="' + o[0] + '" aria-pressed="' + (cur === o[0]) + '"><span class="checkin__face">' + icon(o[2]) + '</span>' + o[1] + '</button>').join('') + '</div>';
-  }
-  function eventCountdown() {
-    const p = S().profile; const plan = S().plan;
-    if (p.event && p.event.date >= today()) return { days: diffDays(today(), p.event.date), label: p.event.name || 'your big day', date: p.event.date };
-    if (plan) return { days: Math.max(0, diffDays(today(), plan.end)), label: 'the end of your plan', date: plan.end };
-    return null;
+  function discHtml(id, title, panel, open, tileSpec) { return disc(id, cell({ act: 'toggleDisc', v: id, tile: tileSpec, title: esc(title) }), panel, open); }
+  function btn(label, act, v, cls) { return '<button class="btn ' + (cls || '') + '" data-act="' + act + '"' + (v != null ? ' data-v="' + esc(v) + '"' : '') + '>' + label + '</button>'; }
+  function clock(ms) { return new Date(ms).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, ' ').toLowerCase(); }
+  function firstName() { const p = S().profile; return p && p.name ? p.name.split(' ')[0] : ''; }
+  function coachGlyph() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="37 50.3" transform="rotate(-90 12 12)"/><circle cx="12" cy="12" r="3.3" fill="#fff"/></svg>'; }
+  const avatarCoach = (lg) => '<span class="coach-avatar' + (lg ? ' coach-avatar--lg' : '') + '">' + coachGlyph() + '</span>';
+  function curWeekNo() { const plan = S().plan; return App.clamp(Math.floor(diffDays(weekStart(plan.start), today()) / 7) + 1, 1, plan.weeks); }
+  function cuisineName(id) { return ((D.MENUS[id] || D.CUISINES.find((c) => c.id === id)) || {}).name || ''; }
+  function spark(vals) {
+    if (vals.length < 2) return '';
+    const w = 76, h = 28; const min = Math.min.apply(null, vals), max = Math.max.apply(null, vals); const span = max - min || 1;
+    const pts = vals.map((v, i) => [(i / (vals.length - 1)) * (w - 8) + 4, h - 5 - ((v - min) / span) * (h - 10)]);
+    const last = pts[pts.length - 1];
+    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true"><polyline class="line" points="' + pts.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ') + '"/><circle class="end" cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="3"/></svg>';
   }
 
   // ── Shell ─────────────────────────────────────────────────────────────────
+  const TABS = [['today', 'Today', 'today'], ['train', 'Train', 'train'], ['eat', 'Eat', 'eat'], ['coach', 'Coach', 'coach']];
   function shell() {
-    const v = App.tab;
-    const body = v === 'journey' ? journey() : v === 'food' ? food() : todayView();
-    App.Coach.setContext(v === 'food' ? { key: 'food', label: 'Food' } : v === 'journey' ? { key: 'journey', label: 'Your journey' } : { key: 'today', label: 'Today' });
-    return body +
-      '<button class="coach-fab" data-act="openCoach" aria-label="Ask your coach"><span class="coach-fab__face">' + App.plate('', '#ffffff', { ring: 'rgba(36,72,245,.35)', hub: 'rgba(36,72,245,.18)', hole: '#2448f5' }).replace('<svg class=""', '<svg style="width:26px;height:26px"') + '</span>Ask Spotter</button>' +
-      '<nav class="tabbar" aria-label="Main"><div class="tabbar__inner">' +
-        tab('today', 'Today', 'today') + tab('journey', 'Journey', 'journey') + tab('food', 'Food', 'food') +
-      '</div></nav>';
+    const t = App.tab;
+    const body = t === 'train' ? trainView() : t === 'eat' ? eatView() : t === 'coach' ? coachView() : todayView();
+    return '<div class="tabview' + (App.entering ? ' is-entering' : '') + '" data-tab="' + t + '">' + body + '</div>' + tabbar();
   }
-  function tab(id, label, ic) {
-    return '<button class="tab' + (App.tab === id ? ' is-on' : '') + '" data-act="go" data-v="' + id + '" aria-current="' + (App.tab === id ? 'page' : 'false') + '">' + icon(ic) + label + '<span class="tab__dot"></span></button>';
+  function tabbar() {
+    return '<nav class="tabbar" aria-label="Main"><div class="tabbar__inner">' + TABS.map(([id, label, ic]) =>
+      '<button class="tab' + (App.tab === id ? ' is-on' : '') + '" data-act="go" data-v="' + id + '"' + (App.tab === id ? ' aria-current="page"' : '') + '>' + icon(ic) + '<span>' + label + '</span>' + (id === 'coach' ? badge() : '') + '</button>').join('') + '</div></nav>';
+  }
+  function badge() { const n = App.tab === 'coach' ? 0 : App.Coach.unread(); return n ? '<span class="tab__badge" data-coach-badge>' + n + '</span>' : ''; }
+  function refreshBadge() {
+    const b = App.$('.tab[data-v="coach"]'); if (!b) return;
+    const old = b.querySelector('.tab__badge'); const html = badge();
+    if (old && html && old.textContent === String(App.Coach.unread())) return;
+    if (old) old.remove();
+    if (html) b.insertAdjacentHTML('beforeend', html);
+  }
+  function header(title, eyebrow) {
+    const p = S().profile;
+    return '<div class="compact" aria-hidden="true">' + esc(title) + '</div>' +
+      '<header class="head"><div class="head__text">' + (eyebrow ? '<div class="head__eyebrow">' + esc(eyebrow) + '</div>' : '') + '<h1 class="head__title">' + esc(title) + '</h1></div>' +
+      '<button class="avatar" data-act="openProfile" aria-label="Profile and settings">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</button></header>' +
+      '<button class="searchbar" data-act="openSearch">' + icon('search') + '<span>Search</span></button>';
   }
 
   // ── Today ─────────────────────────────────────────────────────────────────
   function todayView() {
-    const { primary, ups } = E.predict();
-    const t = today(); const wk = weekStart(t);
-    const streak = E.streakWeeks();
-    const cd = eventCountdown();
-    const target = E.targetInWeek(wk) || S().plan.days.length;
-    const done = E.sessionsInWeek(wk);
-    const food = E.foodScore(wk);
-    const lp = E.levelProgress(S().xp);
-    const tip = E.dailyTip();
-    const showFoodCard = primary.inline !== 'checkin' && !S().food[t] && App.hour() >= 12;
-    const ios = isIOS() && !standalone() && !window.claude && !S().seen.install;
-    return '<main class="screen" id="main">' +
-      '<header class="topbar">' +
-        '<div class="topbar__hi"><div class="topbar__date">' + esc(fmtDate(t, 'long')) + '</div><h1 class="topbar__name">' + esc(App.greeting()) + ', ' + esc(firstName()) + '</h1></div>' +
-        '<button class="streak" data-act="streakInfo" aria-label="' + streak + ' week streak">' + icon('flame') + streak + '</button>' +
-        '<button class="avatar" data-act="openMe" aria-label="Your profile and settings">' + esc(firstName().charAt(0).toUpperCase()) + '</button>' +
-      '</header>' +
-      (cd && S().profile.event ? '<button class="goal-strip" data-act="go" data-v="journey"><span class="goal-strip__icon">' + icon('plane') + '</span><span class="grow"><span class="goal-strip__days num">' + cd.days + ' ' + App.plural(cd.days, 'day') + '</span><br><span class="goal-strip__label">to ' + esc(cd.label) + ' · ' + esc(fmtDate(cd.date, 'dm')) + '</span></span>' + icon('right', 'ic-sm') + '</button>' : '') +
-      heroHtml(primary) +
-      (ios ? '<div class="banner">' + icon('info') + '<div class="grow t-sm"><b>Add Spotter to your Home Screen</b> so it opens like an app and your iPhone keeps your progress safe.</div><button class="btn btn--sm btn--soft" data-act="openInstall">How</button></div>' : '') +
-      '<section class="section" aria-label="This week">' +
-        '<div class="section__head"><h2 class="section__title">This week</h2><button class="btn btn--plain btn--sm" data-act="go" data-v="journey">Journey' + icon('right', 'ic-sm') + '</button></div>' +
-        '<div class="card">' + weekStrip(wk) +
-          '<div class="rings" style="margin-top:16px">' +
-            '<div class="ring-stat">' + ring(target ? done / target : 0, 'var(--blue)', done, '/' + target) + '<div class="ring-stat__name">Sessions</div></div>' +
-            '<div class="ring-stat">' + ring(food / E.foodTarget(), 'var(--green)', App.fmtKg(food), '/' + E.foodTarget()) + '<div class="ring-stat__name">Food days</div></div>' +
-            '<div class="ring-stat">' + ring(lp.pct / 100, 'var(--yellow)', lp.pct, '%') + '<div class="ring-stat__name">To next plate</div></div>' +
-          '</div>' +
-        '</div>' +
-      '</section>' +
-      (showFoodCard ? '<section class="card" aria-label="Food check-in"><div class="row" style="margin-bottom:12px"><span class="list-item__icon tone-green">' + icon('leaf') + '</span><div class="grow"><div class="list-item__title">How’s eating going today?</div><div class="list-item__sub">You can change it tonight.</div></div></div>' + checkinButtons(t) + '</section>' : '') +
-      (ups.length ? '<section class="section" aria-label="Coming up"><div class="section__head"><h2 class="section__title">Coming up</h2></div><div class="upnext">' + ups.map((u) =>
-        '<button class="up" data-act="' + u.act + '" data-v="' + esc(u.data || '') + '"><span class="up__icon tone-' + u.tone + '">' + icon(u.icon) + '</span><span class="grow"><span class="up__when">' + esc(u.when) + '</span><br><span class="up__title">' + esc(u.title) + '</span></span>' + icon('right', 'ic-sm') + '</button>').join('') + '</div></section>' : '') +
-      '<section class="tip" aria-label="Coach tip"><span class="tip__icon">' + icon('sparkle', 'ic-sm') + '</span><div class="grow"><div class="tip__text">' + esc(tip.text) + '</div><button class="tip__ask" data-act="coachAsk" data-v="' + tip.ask + '">Ask Spotter about this' + icon('right', 'ic-sm') + '</button></div></section>' +
-    '</main>';
-  }
-  function heroHtml(c) {
-    return '<section class="hero' + (TONE_HERO[c.tone] || '') + '" aria-label="Your next step">' +
-      App.decoPlate('hero__plate') +
-      '<div class="hero__kicker">' + icon(c.icon, 'ic-sm') + esc(c.kicker) + '</div>' +
-      '<h2 class="hero__title display">' + esc(c.title) + '</h2>' +
-      '<p class="hero__sub">' + esc(c.sub) + '</p>' +
-      (c.inline === 'checkin' ? checkinButtons(c.date, true) : '') +
-      (c.actions ? '<div class="hero__actions">' + c.actions.map((a) => '<button class="btn ' + (a.ghost ? 'btn--ghost-on' : 'btn--white') + '" data-act="' + a.act + '" data-v="' + esc(a.data || '') + '">' + (a.icon ? icon(a.icon) : '') + esc(a.label) + '</button>').join('') + '</div>' : '') +
-      '<div class="hero__why">' + icon('sparkle', 'ic-sm') + '<span>' + esc(c.why) + '</span></div>' +
-    '</section>';
-  }
-  function weekStrip(wk) {
-    const t = today();
-    let h = '<div class="week" role="list">';
-    for (let i = 0; i < 7; i++) {
-      const d = addDays(wk, i);
-      const logged = S().log.filter((l) => l.date === d);
-      const planned = E.slotsOn(d);
-      let mark = '<span class="day__mark--empty"></span>';
-      if (logged.length) mark = miniPlate(logged[0].key === 'B' ? 'var(--red)' : 'var(--blue)', true);
-      else if (planned.length) mark = miniPlate(d < t ? 'var(--ink-3)' : planned[0].key === 'B' ? 'var(--red)' : 'var(--blue)', false);
-      h += '<div class="day' + (d === t ? ' is-today' : '') + '" role="listitem" aria-label="' + esc(fmtDate(d, 'long')) + (logged.length ? ', session done' : planned.length ? ', session planned' : '') + '">' + DOW[i].charAt(0) + '<span class="day__num">' + App.parse(d).getDate() + '</span>' + mark + '</div>';
-    }
-    return h + '</div>';
-  }
-
-  // ── Plan reveal (end of onboarding) ───────────────────────────────────────
-  function reveal() {
-    const p = S().profile; const plan = S().plan; const gym = E.gymOf(plan.gymId);
-    const days = plan.days.map((d) => DOW[d]).join(' & ');
-    const timeL = (D.TIMES.find((x) => x.id === plan.time) || {}).label || '';
-    const title = plan.event ? plan.weeks + ' weeks to ' + (plan.event.name || 'your big day') : 'Your ' + plan.weeks + '-week plan';
-    const derails = (p.derailers || []).map((d) => (D.DERAILERS.find((x) => x.id === d) || {}).label.toLowerCase()).filter(Boolean);
-    const rw = E.partnerRewards();
-    return '<div class="reveal">' +
-      '<div><div class="eyebrow">Your plan, ' + esc(firstName()) + '</div><h1 class="reveal__title display" style="margin-top:6px">' + esc(title) + '</h1></div>' +
-      '<div class="facts">' +
-        '<span class="fact">' + icon('calendar', 'ic-sm') + esc(days) + '</span>' +
-        '<span class="fact">' + icon('clock', 'ic-sm') + plan.mins + ' min · ' + esc(timeL) + '</span>' +
-        '<span class="fact">' + icon('pin', 'ic-sm') + esc(gym.generic ? 'Your gym' : gym.branch) + '</span>' +
-        '<span class="fact">' + icon('sliders', 'ic-sm') + (p.equipment === 'mixed' ? 'Machines + dumbbells' : 'Machines only') + '</span>' +
-        (p.health.asthma ? '<span class="fact">' + icon('puffer', 'ic-sm') + 'Asthma-aware warm-ups</span>' : '') +
-      '</div>' +
-      ['A', 'B'].map((k) => '<div class="sess-card"><div class="sess-card__head sess-card__head--' + k + '"><span class="sess-card__letter">' + k + '</span><div><div style="font-weight:800">' + esc(plan.sessions[k].name) + '</div><div class="t-sm" style="opacity:.9">' + esc(plan.sessions[k].title) + '</div></div></div>' +
-        '<div class="sess-card__list">' + exLine({ id: plan.warmup.id, min: plan.warmup.min }) + E.exercisesFor(k, 1).map(exLine).join('') + '</div></div>').join('') +
-      '<div class="card"><div class="section__title" style="font-size:18px">How it builds</div>' +
-        '<div class="list" style="margin-top:6px">' +
-          (plan.newbie ? phaseRow('1–2', 'Learn the machines', '2 sets, light weights, all about set-up and feel.', 'tone-blue') : '') +
-          phaseRow(plan.newbie ? '3–6' : '1–6', 'Build the habit', '3 sets. I tell you when to add weight.', 'tone-red') +
-          (plan.weeks > 6 ? phaseRow('7–' + plan.weeks, 'Get stronger', 'Steady increases all the way to ' + esc(plan.event ? plan.event.name : 'the finish') + '.', 'tone-yellow') : '') +
-        '</div></div>' +
-      '<div class="card"><div class="row"><span class="list-item__icon tone-green">' + icon('leaf') + '</span><div class="grow"><div class="list-item__title">Food: simple and steady</div><div class="list-item__sub">5 on-track days a week, a one-tap check-in each night, and lighter versions of the dishes you love.</div></div></div>' +
-        (derails.length ? '<p class="t-sm muted" style="margin-top:12px">Game plans ready for: <b style="color:var(--ink)">' + esc(derails.join(', ')) + '</b>.</p>' : '') + '</div>' +
-      (rw.length ? '<div class="card"><div class="row"><span class="list-item__icon tone-yellow">' + icon('gift') + '</span><div class="grow"><div class="list-item__title">Real rewards along the way</div><div class="list-item__sub">' + rw.map((r) => 'Week ' + r.week + ': ' + esc(r.text)).join(' · ') + '</div></div></div><p class="t-sm faint" style="margin-top:10px">Your partner can change these in your profile.</p></div>' : '') +
-      (p.feel.length || p.why ? '<div class="countdown">' + App.decoPlate('countdown__plate') + '<div class="eyebrow" style="color:inherit;opacity:.7">Your why</div><p style="font-size:20px;font-weight:700;margin-top:8px">' + esc(p.why || ('Feel ' + p.feel.join(', ').toLowerCase())) + '</p>' + (p.feel.length ? '<div class="countdown__feel">' + p.feel.map((f) => '<span>' + esc(f) + '</span>').join('') + '</div>' : '') + '</div>' : '') +
-      '<div class="ob__foot"><div class="ob__foot-inner"><button class="btn btn--block" data-act="startPlan">Start my plan' + icon('arrow') + '</button></div></div>' +
-    '</div>';
-  }
-  function phaseRow(weeks, name, sub, tone) {
-    return '<div class="list-item"><span class="list-item__icon ' + tone + '" style="font-weight:900;font-size:13px">W' + weeks.split(/[–-]/)[0] + '</span><div class="grow"><div class="list-item__title">Weeks ' + weeks + ' · ' + name + '</div><div class="list-item__sub">' + sub + '</div></div></div>';
-  }
-
-  // ── Journey ───────────────────────────────────────────────────────────────
-  function journey() {
-    const p = S().profile; const plan = S().plan;
-    const cd = eventCountdown();
-    const lp = E.levelProgress(S().xp);
-    const L = D.LEVELS[lp.level]; const nextL = D.LEVELS[lp.level + 1];
-    const tot = E.totals();
-    return '<main class="screen" id="main">' +
-      '<header class="topbar"><div class="topbar__hi"><div class="topbar__date">' + tot.done + ' of ' + tot.total + ' sessions done</div><h1 class="topbar__name">Your journey</h1></div>' +
-        '<button class="avatar" data-act="openMe" aria-label="Your profile and settings">' + esc(firstName().charAt(0).toUpperCase()) + '</button></header>' +
-      (cd ? '<section class="countdown" aria-label="Countdown">' + App.decoPlate('countdown__plate') +
-        '<div class="countdown__num" data-count="' + cd.days + '">' + cd.days + '</div>' +
-        '<div class="countdown__lbl">' + App.plural(cd.days, 'day') + ' to ' + esc(cd.label) + ' · ' + esc(fmtDate(cd.date, 'short')) + '</div>' +
-        (p.why ? '<p style="margin-top:12px;font-weight:600">“' + esc(p.why) + '”</p>' : '') +
-        (p.feel.length ? '<div class="countdown__feel">' + p.feel.map((f) => '<span>' + esc(f) + '</span>').join('') + '</div>' : '') +
-      '</section>' : '') +
-      '<section class="card" aria-label="Your level"><div class="level">' + App.levelPlate(lp.level, 'level__plate') +
-        '<div class="grow"><div class="eyebrow">Level ' + (lp.level + 1) + '</div><div style="font-size:20px;font-weight:800">' + esc(L.name) + (L.kg ? ' · ' + L.kg + ' kg' : '') + '</div>' +
-        '<div class="level__bar"><i data-w="' + lp.pct + '" style="width:0"></i></div>' +
-        '<div class="t-sm muted" style="margin-top:6px">' + (nextL ? '<b class="num" style="color:var(--ink)">' + lp.toNext + ' XP</b> to the ' + esc(nextL.name.toLowerCase()) : 'Top plate. Legend.') + ' · ' + S().xp.toLocaleString('en-AU') + ' XP total</div></div></div>' +
-      '</section>' +
-      '<section class="section" aria-label="The road ahead"><div class="section__head"><h2 class="section__title">The road ahead</h2><span class="faint t-sm">Tap any step</span></div>' + pathHtml() + '</section>' +
-      '<section class="section" aria-label="Badges"><div class="section__head"><h2 class="section__title">Badges</h2><span class="faint t-sm num">' + Object.keys(S().badges).length + '/' + D.BADGES.length + '</span></div><div class="badges">' + D.BADGES.map(badgeTile).join('') + '</div></section>' +
-      liftsHtml() +
-      '<section class="soon"><span class="list-item__icon tone-blue">' + icon('swap') + '</span><div class="grow"><span class="soon__tag">Coming soon</span><div class="list-item__title">Progress that travels</div><div class="list-item__sub">Training at a different gym? Spotter will match its machines to yours and carry your progress over, so 20 kg here means the right weight there.</div></div></section>' +
-    '</main>';
-  }
-  function badgeTile(b) {
-    const got = S().badges[b.id];
-    return '<button class="bdg' + (got ? '' : ' is-locked') + '" data-act="badgeInfo" data-v="' + b.id + '"><span class="bdg__icon tone-' + (got ? b.tone : 'blue') + '">' + icon(got ? b.icon : 'lock') + '</span><span class="bdg__name">' + esc(b.name) + '</span></button>';
-  }
-  function pathHtml() {
-    const plan = S().plan; const t = today();
-    const slots = plan.slots.filter((s) => !E.isSkipped(s)).slice().sort((a, b) => (E.slotDate(a) < E.slotDate(b) ? -1 : 1));
-    const rewards = E.partnerRewards();
-    const nodes = [];
-    let nextMarked = false;
-    let lastWeek = 0;
-    slots.forEach((s, i) => {
-      const done = E.isDone(s);
-      const isNext = !done && !nextMarked;
-      if (isNext) nextMarked = true;
-      nodes.push({ type: 'session', slot: s, done, next: isNext, week: s.week, firstOfWeek: s.week !== lastWeek });
-      lastWeek = s.week;
-      const nextSlot = slots[i + 1];
-      rewards.forEach((r) => { if (s.week === r.week && (!nextSlot || nextSlot.week !== r.week)) nodes.push({ type: 'gift', reward: r }); });
-    });
-    nodes.push({ type: 'goal' });
-    const ROW = 96; const WEEK_GAP = 54;
-    let y = 30; const pts = nodes.map((n, i) => { if (n.firstOfWeek) y += WEEK_GAP; const pt = { x: 50 + Math.sin(i * 0.85) * 24, y }; y += ROW; return pt; });
-    const H = y + 10;
-    let doneIdx = -1; nodes.forEach((n, i) => { if (n.type === 'session' && n.done) doneIdx = i; if (n.type === 'gift' && n.reward.open) doneIdx = i; });
-    const seg = (a, b) => { let d = 'M' + pts[a].x + ' ' + pts[a].y; for (let i = a + 1; i <= b; i++) { const p0 = pts[i - 1], p1 = pts[i]; const my = (p0.y + p1.y) / 2; d += ' C' + p0.x + ' ' + my + ' ' + p1.x + ' ' + my + ' ' + p1.x + ' ' + p1.y; } return d; };
-    let h = '<div class="path" style="height:' + H + 'px"><svg class="path__line" viewBox="0 0 100 ' + H + '" preserveAspectRatio="none" aria-hidden="true"><path d="' + seg(0, nodes.length - 1) + '"/>' + (doneIdx > 0 ? '<path class="is-done" d="' + seg(0, doneIdx) + '"/>' : '') + '</svg>';
-    nodes.forEach((n, i) => {
-      const style = 'left:' + pts[i].x + '%;top:' + pts[i].y + 'px';
-      if (n.type === 'session') {
-        const d = E.slotDate(n.slot);
-        if (n.firstOfWeek) h += '<div class="path__week" style="top:' + (pts[i].y - 82) + 'px"><span>Week ' + n.week + ' · ' + esc(E.phaseFor(n.week, plan).name) + '</span></div>';
-        h += '<button class="node node--' + n.slot.key + (n.done ? ' is-done' : '') + (n.next ? ' is-next' : '') + '" style="' + style + '" data-act="previewSession" data-v="' + n.slot.id + '" aria-label="' + esc(plan.sessions[n.slot.key].name + ', ' + fmtDate(d, 'long') + (n.done ? ', done' : '')) + '">' +
-          (n.done ? icon('check', 'ic-lg') : '<span class="node__letter">' + n.slot.key + '</span>') +
-          (n.next ? '<span class="node__here">' + (d === t ? 'Today' : d < t ? 'Catch up' : 'Up next') + '</span>' : '') +
-          '<span class="node__label">' + esc(fmtDate(d, 'short')) + '</span></button>';
-      } else if (n.type === 'gift') {
-        h += '<button class="node node--gift' + (n.reward.open ? ' is-open' : '') + '" style="' + style + '" data-act="rewardInfo" data-v="' + n.reward.week + '" aria-label="Reward for week ' + n.reward.week + '">' + icon('gift', 'ic-lg') + '<span class="node__label">' + esc(n.reward.open ? 'Unlocked' : 'Week ' + n.reward.week + ' reward') + '</span></button>';
-      } else {
-        const ev = plan.event;
-        h += '<button class="node node--goal" style="' + style + '" data-act="goalInfo" aria-label="Your goal">' + icon(ev ? 'plane' : 'trophy', 'ic-lg') + '<span class="node__label">' + esc(ev ? (ev.name || 'Big day') + ' · ' + fmtDate(ev.date, 'dm') : 'Plan complete') + '</span></button>';
-      }
-    });
-    return h + '</div>';
-  }
-  function liftsHtml() {
-    const byEx = {};
-    S().log.forEach((l) => l.ex.forEach((e) => {
-      if (!e.sets.length) return;
-      const ex = D.EX[e.id]; if (!ex || ex.unit === 'min') return;
-      const v = ex.unit === 'kg' ? Math.max.apply(null, e.sets.map((s) => s.w)) : Math.max.apply(null, e.sets.map((s) => s.r));
-      (byEx[e.id] = byEx[e.id] || []).push(v);
-    }));
-    const ids = Object.keys(byEx);
-    if (!ids.length) return '<section class="section"><div class="section__head"><h2 class="section__title">Your lifts</h2></div><div class="card card--flat t-sm muted">After your first session, every machine gets its own progress line here.</div></section>';
-    return '<section class="section"><div class="section__head"><h2 class="section__title">Your lifts</h2></div><div class="card" style="padding-block:4px">' + ids.map((id) => {
-      const ex = D.EX[id]; const vals = byEx[id]; const last = vals[vals.length - 1]; const first = vals[0];
-      const unit = ex.unit === 'kg' ? ' kg' : ex.unit === 'sec' ? ' s' : ' reps';
-      const delta = last - first;
-      return '<div class="lift"><div><div class="lift__name">' + esc(ex.name) + '</div><div class="lift__val">' + App.fmtKg(last) + unit + (vals.length > 1 ? (delta > 0 ? ' · <b style="color:var(--green-text)">+' + App.fmtKg(delta) + unit + '</b>' : ' · steady') : ' · first log') + '</div></div>' + spark(vals) + '</div>';
-    }).join('') + '</div></section>';
-  }
-  function spark(vals) {
-    const w = 110, h = 46, pad = 5;
-    if (vals.length < 2) return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '"><circle cx="' + (w - pad) + '" cy="' + h / 2 + '" r="4"/></svg>';
-    const min = Math.min.apply(null, vals), max = Math.max.apply(null, vals); const span = max - min || 1;
-    const pts = vals.map((v, i) => [pad + (i / (vals.length - 1)) * (w - pad * 2), h - pad - ((v - min) / span) * (h - pad * 2)]);
-    const line = 'M' + pts.map((p) => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' L');
-    const area = line + ' L' + pts[pts.length - 1][0].toFixed(1) + ' ' + (h - 1) + ' L' + pts[0][0].toFixed(1) + ' ' + (h - 1) + ' Z';
-    const lp = pts[pts.length - 1];
-    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true"><path class="area" d="' + area + '"/><path class="line" d="' + line + '"/><circle cx="' + lp[0].toFixed(1) + '" cy="' + lp[1].toFixed(1) + '" r="4"/></svg>';
-  }
-
-  // ── Food ──────────────────────────────────────────────────────────────────
-  function food() {
-    const t = today(); const wk = weekStart(t); const p = S().profile;
-    const score = E.foodScore(wk);
-    const cur = S().food[t];
-    const dishes = (p.dishes && p.dishes.length ? p.dishes : ['joojeh', 'stirfry', 'bolognese']).map((id) => D.DISHES.find((d) => d.id === id)).filter(Boolean);
-    const upcoming = S().events.filter((e) => e.date >= t).sort((a, b) => (a.date < b.date ? -1 : 1));
-    const wkPlan = S().weekends[wk];
-    const order = ['gathering', 'eatingout', 'takeaway', 'weekend'];
-    return '<main class="screen" id="main">' +
-      '<header class="topbar"><div class="topbar__hi"><div class="topbar__date">Simple, steady, no counting</div><h1 class="topbar__name">Food</h1></div>' +
-        '<button class="avatar" data-act="openMe" aria-label="Your profile and settings">' + esc(firstName().charAt(0).toUpperCase()) + '</button></header>' +
-      '<section class="card" aria-label="This week"><div class="food-week">' + ring(score / E.foodTarget(), 'var(--green)', App.fmtKg(score), '/' + E.foodTarget()) +
-        '<div class="grow"><div class="list-item__title">On-track days this week</div><div class="dots" style="margin-top:10px">' +
-        DOW.map((d, i) => { const dd = addDays(wk, i); const f = S().food[dd]; return '<div class="dot' + (dd === t ? ' is-today' : '') + '"><i class="' + (f ? f.s : '') + '"></i>' + d.charAt(0) + '</div>'; }).join('') +
-        '</div></div></div>' +
-        '<p class="t-sm muted" style="margin-top:14px">' + (score >= E.foodTarget() ? 'Target hit for the week. That’s how results happen.' : 'Partly counts as half. One off day never ruins a week.') + '</p>' +
-      '</section>' +
-      '<section class="card" aria-label="Today’s check-in"><div class="row" style="margin-bottom:12px"><span class="list-item__icon tone-green">' + icon('leaf') + '</span><div class="grow"><div class="list-item__title">' + (cur ? 'Today: ' + (cur.s === 'on' ? 'on track' : cur.s === 'part' ? 'partly on track' : 'off track') : 'How did eating go today?') + '</div><div class="list-item__sub">' + (cur ? 'Tap to change it.' : 'One tap. Honest beats perfect.') + '</div></div></div>' + checkinButtons(t) + '</section>' +
-      (upcoming.length ? '<section class="section"><div class="section__head"><h2 class="section__title">Planned moments</h2></div><div class="upnext">' + upcoming.slice(0, 4).map((e) => { const gp = D.GAMEPLANS[e.type]; return '<button class="up" data-act="openGameplan" data-v="' + e.type + '|' + e.id + '"><span class="up__icon tone-' + gp.color + '">' + icon(gp.icon) + '</span><span class="grow"><span class="up__when">' + esc(rel(e.date)) + '</span><br><span class="up__title">' + esc(e.title) + '</span></span>' + (e.planned ? '<span class="pill tone-green">' + icon('check', 'ic-sm') + 'Planned</span>' : icon('right', 'ic-sm')) + '</button>'; }).join('') + '</div></section>' : '') +
-      '<section class="section"><div class="section__head"><h2 class="section__title">Game plans</h2><span class="faint t-sm">For the tricky moments</span></div><div class="plans">' + order.map((k) => {
-        const gp = D.GAMEPLANS[k];
-        const sub = k === 'weekend' ? (wkPlan ? 'Planned for this weekend' : 'Two minutes, every Friday') : k === 'gathering' ? 'Enjoy it, still have a good week' : k === 'eatingout' ? 'Decide before you’re hungry' : 'Better orders, no guilt';
-        return '<button class="plan-tile" data-act="' + (k === 'weekend' ? 'openWeekend' : 'openGameplan') + '" data-v="' + k + '"><span class="plan-tile__icon tone-' + gp.color + '">' + icon(gp.icon) + '</span><span class="plan-tile__name">' + esc(gp.title) + '</span><span class="plan-tile__sub">' + esc(sub) + '</span></button>';
-      }).join('') + '</div></section>' +
-      '<section class="section"><div class="section__head"><h2 class="section__title">Your go-to meals</h2><span class="faint t-sm">Lighter weekday versions</span></div><div class="meals">' + dishes.map((d, i) => {
-        const tones = ['var(--blue)', 'var(--red)', 'var(--yellow)', 'var(--green)'];
-        return '<button class="meal" data-act="openMeal" data-v="' + d.id + '"><div class="meal__top" style="background:' + tones[i % 4] + ';color:' + (i % 4 === 2 ? 'var(--on-yellow)' : '#fff') + '">' + App.decoPlate('hero__plate') + icon('food', 'ic-lg') + '</div><div class="meal__body"><span class="meal__name">' + esc(d.name) + '</span><span class="meal__sub">' + esc(d.lighter[0]) + '</span></div></button>';
-      }).join('') + '</div></section>' +
-      '<section class="section"><div class="section__head"><h2 class="section__title">Portion guide</h2><span class="faint t-sm">Your hand is the measure</span></div><div class="hands">' + D.HAND_PORTIONS.map((h) => '<div class="hand"><span class="hand__part">' + esc(h.part) + '</span><span class="hand__food">' + esc(h.food) + ' · ' + esc(h.per) + '</span><span class="hand__eg">' + esc(h.eg) + '</span></div>').join('') + '</div></section>' +
-      '<section class="soon"><span class="list-item__icon tone-green">' + icon('clipboard') + '</span><div class="grow"><span class="soon__tag">Coming soon</span><div class="list-item__title">Shopping list and your own recipes</div><div class="list-item__sub">Save family recipes, get a lighter version and a shopping list for the week.</div></div></section>' +
-    '</main>';
-  }
-
-  // ── Sheets ────────────────────────────────────────────────────────────────
-  function previewSheet(slotId) {
-    const s = E.slotById(slotId); if (!s) return;
-    const plan = S().plan; const d = E.slotDate(s); const done = E.isDone(s);
-    const exs = E.exercisesFor(s.key, s.week);
-    const log = S().log.find((l) => l.slot === slotId);
-    const phase = E.phaseFor(s.week, plan);
-    const body =
-      '<div class="row"><span class="pill tone-' + (s.key === 'A' ? 'blue' : 'red') + '">' + icon('calendar', 'ic-sm') + esc(fmtDate(d, 'long')) + '</span><span class="pill tone-yellow">Week ' + s.week + ' · ' + esc(phase.name) + '</span></div>' +
-      (done && log ? '<div class="card card--flat"><div class="list-item__title">Done ' + esc(rel(log.date).toLowerCase()) + '</div><div class="list-item__sub">' + log.mins + ' min · ' + App.sum(log.ex.map((e) => e.sets.length)) + ' sets · ' + Math.round(App.sum(log.ex.map((e) => App.sum(e.sets.map((x) => (x.w || 0) * x.r))))).toLocaleString('en-AU') + ' kg lifted</div></div>' : '') +
-      '<p class="muted">' + esc(phase.note) + '</p>' +
-      '<div class="card" style="padding-block:6px">' + exLine({ id: plan.warmup.id, min: plan.warmup.min }) + exs.map(exLine).join('') + (plan.finisher ? exLine({ id: plan.finisher.id, min: plan.finisher.min }) : '') + '</div>' +
-      '<div class="tip"><span class="tip__icon">' + icon('pin', 'ic-sm') + '</span><div class="tip__text">Machine photos and their exact spots at ' + esc(E.gymName(plan.gymId)) + ' arrive once the gym is mapped. Until then, each step shows the machine type and how to set it up.</div></div>';
-    const canStart = !done && !S().active;
-    App.sheet(esc(plan.sessions[s.key].name + ' · ' + plan.sessions[s.key].title), body, {
-      foot: canStart ? '<button class="btn btn--block" data-act="startSession" data-v="' + slotId + '">' + icon('play') + (d === today() ? 'Start session' : d < today() ? 'Do it now' : 'Start it today instead') + '</button>' : (S().active ? '<button class="btn btn--block btn--soft" data-act="resumeSession">Resume your session in progress</button>' : ''),
-    });
-  }
-  function notTodaySheet(slotId) {
-    const s = E.slotById(slotId); const t = today();
-    const busy = (d) => E.slotsOn(d).length > 0;
-    const opts = [];
-    for (let i = 1; i <= 4; i++) { const d = addDays(t, i); if (!busy(d)) opts.push(d); if (opts.length >= 2) break; }
-    App.sheet('Move this session?', '<p class="muted">Life happens. Pick a new day and I’ll shuffle things around, or skip it and carry on.</p>' +
-      '<div class="options">' + opts.map((d) => '<button class="option" data-act="moveSlot" data-v="' + slotId + '|' + d + '"><span class="option__icon">' + icon('calendar') + '</span><span class="option__main"><span class="option__title">' + esc(rel(d)) + '</span><span class="option__sub" style="display:block">' + esc(fmtDate(d, 'long')) + (dow(d) === 6 || dow(d) === 5 ? ' · weekend' : '') + '</span></span></button>').join('') +
-      '<button class="option" data-act="skipSlot" data-v="' + slotId + '"><span class="option__icon">' + icon('skip') + '</span><span class="option__main"><span class="option__title">Skip this one</span><span class="option__sub" style="display:block">No guilt. Your next session stays as planned.</span></span></button></div>');
-  }
-  function packSheet() {
-    const p = S().profile; const key = 'pack:' + today();
-    const st = S().seen[key] || {};
-    const items = [['water', 'Water bottle', 'water'], ['towel', 'Small towel', 'towel'], ['shoes', 'Closed shoes', 'shoe'], ['phones', 'Headphones', 'headphones']];
-    if (p.health.asthma) items.splice(0, 0, ['puffer', 'Reliever puffer', 'puffer', 'Every session, no exceptions']);
-    App.sheet('Pack your bag', '<p class="muted">Tick them off as they go in. Packing the night before makes tomorrow easy.</p><div class="checklist">' + items.map((it) => '<button class="check' + (st[it[0]] ? ' is-on' : '') + '" data-act="packToggle" data-v="' + it[0] + '"><span class="check__box">' + icon('check', 'ic-sm') + '</span>' + icon(it[2]) + '<span class="grow">' + esc(it[1]) + (it[3] ? '<span class="check__sub">' + esc(it[3]) + '</span>' : '') + '</span></button>').join('') + '</div>');
-  }
-  function gameplanSheet(type, eventId) {
-    const gp = D.GAMEPLANS[type]; if (!gp) return;
     const p = S().profile;
-    const persian = (p.dishes || []).some((id) => (D.DISHES.find((d) => d.id === id) || {}).cuisine === 'Persian');
-    const sweets = (p.derailers || []).includes('sweets');
-    const ev = eventId ? S().events.find((e) => e.id === eventId) : null;
-    const parts = gp.parts.filter((x) => !x.sweets || sweets || type === 'gathering').map((x) => {
-      const items = persian && x.persian ? x.persian.concat(x.items.slice(x.persian.length >= 2 ? 2 : 0)) : x.items;
-      return '<div class="gp-section"><h4>' + esc(x.h) + '</h4><ul class="bullets bullets--green">' + items.map((i) => '<li>' + esc(i) + '</li>').join('') + '</ul></div>';
-    }).join('');
-    const t = today();
-    const days = [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(t, i));
-    const foot = ev
-      ? '<button class="btn btn--block' + (ev.planned ? ' btn--soft' : ' btn--green') + '" data-act="gpPlanned" data-v="' + ev.id + '">' + icon('check') + (ev.planned ? 'Planned. Good luck!' : 'I’ve got my plan') + '</button>'
-      : '<div class="field"><div class="field__label">Add it to your week</div><div class="chips">' + days.map((d) => '<button class="chip chip--sm" data-act="gpAdd" data-v="' + type + '|' + d + '">' + esc(rel(d)) + '</button>').join('') + '</div></div>';
-    App.sheet(esc(ev ? ev.title : gp.title), '<div class="banner banner--' + gp.color + '">' + icon(gp.icon) + '<div>' + esc(gp.intro) + '</div></div>' + parts +
-      '<button class="tip" data-act="coachAsk" data-v="' + (type === 'gathering' ? 'gathering' : type === 'takeaway' ? 'takeaway' : 'eatingout') + '" style="text-align:left"><span class="tip__icon">' + icon('chat', 'ic-sm') + '</span><span class="grow"><span class="tip__text">Questions about it? Ask Spotter.</span></span></button>', { foot });
+    let h = header('Today', fmtDate(today(), 'long')) + '<div class="page">';
+    if (p.health.flag && !p.health.cleared) h += '<div class="callout">' + icon('shield') + '<div><b>Check in with your GP first.</b> You answered yes to a health question. Once they’ve given you the all-clear, you’re ready to start.<div><button class="btn btn--sm btn--tinted" data-act="healthCleared">I’ve been cleared</button></div></div></div>';
+    h += '<section class="sec">' + upNextCard() + '</section>';
+    h += '<section class="sec" data-coach-slot>' + coachCard() + '</section>';
+    h += sec('This week', '<span class="sec__aside">Week ' + curWeekNo() + ' of ' + S().plan.weeks + '</span>', weekCard());
+    h += '<section class="sec">' + group([goalCell(), rewardCell(), installCell()], true) + '</section>';
+    return h + '</div>';
   }
-  function weekendSheet() {
-    const wk = weekStart(today());
-    const cur = S().weekends[wk] || { on: [], fun: '', move: '' };
-    App._wk = JSON.parse(JSON.stringify(cur));
-    renderWeekend();
-  }
-  function renderWeekend(replace) {
-    const w = App._wk;
-    const on = [['gathering', 'Family gathering'], ['eatingout', 'Eating out'], ['takeaway', 'Takeaway night'], ['home', 'Quiet one at home']];
-    const fun = ['Friday dinner', 'Saturday lunch', 'Saturday dinner', 'Sunday lunch', 'Sunday dinner'];
-    const move = ['A long walk', 'A swim', 'A bike ride', 'A hike', 'An extra gym session'];
-    const body =
-      '<p class="muted">Pick your fun meal, keep everything else normal, and plan one active thing. That’s the whole trick.</p>' +
-      '<div class="field"><div class="field__label">What’s on this weekend?</div><div class="chips">' + on.map((o) => '<button class="chip' + (w.on.includes(o[0]) ? ' is-on' : '') + '" data-act="wkOn" data-v="' + o[0] + '">' + esc(o[1]) + '</button>').join('') + '</div></div>' +
-      '<div class="field"><div class="field__label">Your one fun meal</div><div class="chips">' + fun.map((f) => '<button class="chip' + (w.fun === f ? ' is-on' : '') + '" data-act="wkFun" data-v="' + esc(f) + '">' + esc(f) + '</button>').join('') + '</div></div>' +
-      '<div class="field"><div class="field__label">One active thing</div><div class="chips">' + move.map((f) => '<button class="chip' + (w.move === f ? ' is-on' : '') + '" data-act="wkMove" data-v="' + esc(f) + '">' + esc(f) + '</button>').join('') + '</div></div>';
-    const foot = '<button class="btn btn--block btn--green" data-act="wkSave"' + (w.fun ? '' : ' disabled') + '>' + icon('check') + 'Save my weekend plan</button>';
-    if (replace) { App.replaceSheetBody(body); const f = App.topLayer().querySelector('.sheet__foot'); if (f) f.innerHTML = foot; }
-    else App.sheet('Weekend game plan', body, { foot });
-  }
-  function mealSheet(id) {
-    const d = D.DISHES.find((x) => x.id === id); if (!d) return;
-    App.sheet(esc(d.name), '<div class="banner banner--green">' + icon('leaf') + '<div>Keep the flavour, lighten the load. These are general healthy-eating ideas, not a diet.</div></div>' +
-      '<div class="gp-section"><h4>Make it lighter</h4><ul class="bullets bullets--green">' + d.lighter.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>' +
-      '<div class="gp-section"><h4>On your plate</h4><div class="card card--flat">' + esc(d.plate) + '</div></div>' +
-      '<div class="hands">' + D.HAND_PORTIONS.map((h) => '<div class="hand"><span class="hand__part">' + esc(h.part) + '</span><span class="hand__food">' + esc(h.food) + '</span></div>').join('') + '</div>');
-  }
-  function installSheet() {
-    App.sheet('Add to your Home Screen', '<p class="muted">Spotter works best as an app on your iPhone. It opens full screen, works offline, and your iPhone keeps your progress safe.</p>' +
-      '<ol class="ios-steps"><li>Open this page in Safari</li><li>Tap the Share button (the square with an arrow)</li><li>Scroll down and tap “Add to Home Screen”</li><li>Tap Add. Spotter is now on your Home Screen</li></ol>' +
-      '<div class="tip"><span class="tip__icon">' + icon('info', 'ic-sm') + '</span><div class="tip__text">Safari can clear data for websites you haven’t opened in a while. Once Spotter is on your Home Screen, that doesn’t happen.</div></div>',
-      { foot: '<button class="btn btn--block btn--soft" data-act="dismissInstall">Done, hide this tip</button>' });
+  function upNextCard() {
+    const u = E.upNext();
+    let a = '';
+    const more = (id) => '<button class="btn btn--tinted btn--icon" data-act="sessionOptions" data-v="' + id + '" aria-label="Session options">' + icon('more') + '</button>';
+    if (u.kind === 'active') a = btn('Resume session', 'resumeSession', null, 'btn--accent');
+    else if (u.kind === 'today') a = btn('Start', 'startSession', u.slot.id, 'btn--accent') + more(u.slot.id);
+    else if (u.kind === 'missed') a = btn('Do it today', 'catchUp', u.slot.id, 'btn--accent') + more(u.slot.id);
+    else if (u.kind === 'first' || u.kind === 'next') a = btn('Preview', 'previewSession', u.slot.id, 'btn--tinted') + more(u.slot.id);
+    else a = btn('See your progress', 'openProgress', null, 'btn--tinted');
+    const first = u.slot ? E.exercisesFor(u.slot.key, u.slot.week, u.slot.id)[0] : null;
+    return '<div class="card upnext' + (u.kind === 'done' ? ' upnext--done' : '') + '">' +
+      (first ? '<div class="upnext__art" aria-hidden="true">' + art(D.EX[first.id].art) + '</div>' : '') +
+      '<div class="upnext__eyebrow">' + esc(u.eyebrow) + '</div>' +
+      '<h2 class="upnext__title">' + esc(u.title) + '</h2>' +
+      '<p class="upnext__sub">' + esc(u.sub) + '</p>' +
+      '<div class="upnext__actions">' + a + '</div></div>';
   }
 
-  // Weekly check-in: three short steps, then next week's plan.
-  function checkinSheet() { App._ci = { step: 0, well: [], hard: [], next: [], day: {} }; renderCheckin(); }
-  function renderCheckin(replace) {
-    const c = App._ci; const t = today(); const wk = weekStart(t);
-    const plan = S().plan;
-    let body = ''; let foot = '';
-    if (c.step === 0) {
-      const done = E.sessionsInWeek(wk); const tgt = E.targetInWeek(wk) || plan.days.length; const fs = E.foodScore(wk);
-      body = '<p class="muted">Here’s your week at a glance.</p><div class="rings">' +
-        '<div class="ring-stat">' + ring(tgt ? done / tgt : 0, 'var(--blue)', done, '/' + tgt) + '<div class="ring-stat__name">Sessions</div></div>' +
-        '<div class="ring-stat">' + ring(fs / 5, 'var(--green)', App.fmtKg(fs), '/5') + '<div class="ring-stat__name">Food days</div></div>' +
-        '<div class="ring-stat">' + ring(1, 'var(--yellow)', E.streakWeeks(), 'wk') + '<div class="ring-stat__name">Streak</div></div></div>' +
-        '<p style="font-weight:700;text-align:center">' + (done >= tgt ? 'Every session done. Proper work.' : done ? 'You showed up. Let’s make next week even smoother.' : 'A quiet week. That’s okay, next week is a fresh start.') + '</p>';
-      foot = '<button class="btn btn--block" data-act="ciNext">Continue' + icon('arrow') + '</button>';
-    } else if (c.step === 1) {
-      const well = ['Showed up', 'Food on track', 'Lifted more', 'Felt good', 'Planned ahead', 'Slept well'];
-      const hard = ['Finding time', 'Motivation', 'Food', 'The weekend', 'Feeling sore', 'Busy gym'];
-      body = '<div class="field"><div class="field__label">What went well?</div><div class="chips">' + well.map((x) => '<button class="chip' + (c.well.includes(x) ? ' is-on' : '') + '" data-act="ciPick" data-v="well|' + esc(x) + '">' + esc(x) + '</button>').join('') + '</div></div>' +
-        '<div class="field"><div class="field__label">What was hard?</div><div class="chips">' + hard.map((x) => '<button class="chip' + (c.hard.includes(x) ? ' is-on' : '') + '" data-act="ciPick" data-v="hard|' + esc(x) + '">' + esc(x) + '</button>').join('') + '</div></div>';
-      foot = '<button class="btn btn--block" data-act="ciNext">Continue' + icon('arrow') + '</button>';
-    } else if (c.step === 2) {
-      const next = [['gathering', 'Family gathering'], ['eatingout', 'Eating out'], ['takeaway', 'Takeaway night'], ['busy', 'Busy week'], ['none', 'Nothing special']];
-      const nextWk = addDays(wk, 7);
-      body = '<div class="field"><div class="field__label">Anything coming up next week?</div><div class="chips">' + next.map((x) => '<button class="chip' + (c.next.includes(x[0]) ? ' is-on' : '') + '" data-act="ciPick" data-v="next|' + x[0] + '">' + esc(x[1]) + '</button>').join('') + '</div></div>' +
-        c.next.filter((x) => ['gathering', 'eatingout', 'takeaway'].includes(x)).map((x) => '<div class="field"><div class="field__label">Which day is the ' + esc(D.GAMEPLANS[x].title.toLowerCase()) + '?</div><div class="chips">' + [0, 1, 2, 3, 4, 5, 6].map((i) => { const d = addDays(nextWk, i); return '<button class="chip chip--sm' + (c.day[x] === d ? ' is-on' : '') + '" data-act="ciDay" data-v="' + x + '|' + d + '">' + DOW[i] + '</button>'; }).join('') + '</div></div>').join('');
-      foot = '<button class="btn btn--block" data-act="ciNext">See next week' + icon('arrow') + '</button>';
-    } else {
-      const adj = nextWeekAdjustments(c);
-      body = '<p class="muted">Here’s next week, set up from what you told me and what you logged.</p><div class="list">' + adj.map((a) => '<div class="list-item"><span class="list-item__icon tone-' + a.tone + '">' + icon(a.icon) + '</span><div class="grow"><div class="list-item__title">' + esc(a.title) + '</div><div class="list-item__sub">' + esc(a.sub) + '</div></div></div>').join('') + '</div>';
-      foot = '<button class="btn btn--block btn--green" data-act="ciSave">' + icon('check') + 'Lock it in</button>';
+  // The latest message from the coach, answerable right here.
+  let coachTyping = false;
+  function coachCard() {
+    const chat = S().chat; const m = App.Coach.latest();
+    if (!m && !coachTyping) return '';
+    const fresh = m && ((m.replies && m.replies.length) || App.iso(new Date(m.at)) === today());
+    if (!fresh && !coachTyping) {
+      return group([cell({ act: 'go', v: 'coach', lead: avatarCoach(), title: 'Your coach', sub: esc(m.text.split('\n')[0].slice(0, 70)) + (m.text.length > 70 ? '…' : '') })], true);
     }
-    if (replace) { App.replaceSheetBody(body); const f = App.topLayer().querySelector('.sheet__foot'); if (f) f.innerHTML = foot; }
-    else App.sheet('Sunday check-in', body, { foot });
+    // context since the coach's previous message: your reply and anything that changed
+    const li = m ? chat.lastIndexOf(m) : -1;
+    let prev = -1; for (let i = li - 1; i >= 0; i--) if (chat[i].from === 'coach') { prev = i; break; }
+    const ctx = li >= 0 ? chat.slice(prev + 1, li).concat(coachTyping ? chat.slice(li + 1) : []) : [];
+    const notes = ctx.filter((x) => x.from === 'note').slice(-2).map((x) => '<div class="note is-instant" style="align-self:flex-start;margin:8px 0 0">' + icon('check') + esc(x.text) + '</div>').join('');
+    const mine = ctx.filter((x) => x.from === 'me').slice(-1).map((x) => '<div style="display:flex;justify-content:flex-end;margin-top:10px"><span class="bubble bubble--me is-instant" style="font-size:15px;padding:7px 12px">' + esc(x.text) + '</span></div>').join('');
+    const body = coachTyping
+      ? (m ? '<p class="coachcard__text muted">' + esc(m.text) + '</p>' : '') + mine + '<div class="typing" aria-label="Coach is typing"><i></i><i></i><i></i></div>'
+      : mine + notes + '<p class="coachcard__text">' + esc(m.text) + '</p>' + cardInline(m) + placeBox(m) + repliesHtml(m);
+    return '<div class="card coachcard" data-coach-card>' +
+      '<div class="coachcard__head">' + avatarCoach() + '<div class="coachcard__who"><span class="coachcard__name">Coach</span>' + (m ? '<span class="coachcard__time">' + esc(clock(m.at)) + '</span>' : '') + '</div>' +
+        '<button class="btn btn--plain btn--sm" data-act="go" data-v="coach">Open chat</button></div>' + body + '</div>';
   }
-  function nextWeekAdjustments(c) {
-    const plan = S().plan; const wk = weekStart(today()); const nextWk = addDays(wk, 7);
-    const out = [];
-    const slots = plan.slots.filter((s) => { const d = E.slotDate(s); return d >= nextWk && d <= addDays(nextWk, 6) && !E.isSkipped(s); });
-    out.push({ icon: 'calendar', tone: 'blue', title: slots.length ? slots.map((s) => plan.sessions[s.key].name + ' ' + DOW[dow(E.slotDate(s))]).join(' · ') : 'No sessions planned', sub: c.hard.includes('Finding time') ? 'Time was tight. Pack your bag the night before and treat it like a meeting.' : 'Same rhythm as this week.' });
-    const ups = [];
-    S().log.slice(-plan.days.length).forEach((l) => l.ex.forEach((e) => { const sg = E.suggest(e.id); if (sg.mode === 'up' && D.EX[e.id].unit === 'kg') ups.push(D.EX[e.id].name + ' → ' + sg.title); }));
-    if (ups.length) out.push({ icon: 'up', tone: 'yellow', title: 'Going up', sub: ups.slice(0, 3).join(' · ') });
-    ['gathering', 'eatingout', 'takeaway'].forEach((x) => { if (c.next.includes(x)) out.push({ icon: D.GAMEPLANS[x].icon, tone: D.GAMEPLANS[x].color, title: D.GAMEPLANS[x].title + (c.day[x] ? ' · ' + DOW[dow(c.day[x])] : ''), sub: 'Game plan ready. I’ll remind you the day before.' }); });
-    if (c.hard.includes('The weekend') || c.hard.includes('Food')) out.push({ icon: 'leaf', tone: 'green', title: 'Friday weekend plan', sub: 'I’ll nudge you on Friday to pick your fun meal.' });
-    if (c.hard.includes('Feeling sore')) out.push({ icon: 'info', tone: 'blue', title: 'Soreness', sub: 'Normal early on. A 20-minute walk on rest days helps it settle.' });
-    if (c.hard.includes('Motivation')) out.push({ icon: 'flame', tone: 'red', title: 'Your why', sub: S().profile.why || 'Remember what you’re working towards.' });
-    if (c.next.includes('busy')) out.push({ icon: 'clock', tone: 'blue', title: 'Busy week plan', sub: 'If time runs short, do the first three exercises. A short session still counts.' });
-    return out;
+  function cardInline(m) {
+    if (!m.card || (m.card.type !== 'menu' && m.card.type !== 'dinners')) return '';
+    return msgCard(m.card, ' is-instant').replace('<div class="msgcard is-instant">', '<div class="msgcard is-instant" style="width:100%;box-shadow:none;background:var(--fill-2);margin-top:12px">');
   }
-
-  function meSheet() {
-    const p = S().profile; const plan = S().plan; const lp = E.levelProgress(S().xp);
-    const rw = S().rewards || D.DEFAULT_REWARDS;
-    const timeL = (D.TIMES.find((x) => x.id === plan.time) || {}).label || '';
-    const theme = S().settings.theme;
-    const body =
-      '<div class="me-head"><span class="avatar">' + esc(firstName().charAt(0).toUpperCase()) + '</span><div class="grow"><div style="font-size:22px;font-weight:800">' + esc(p.name) + '</div><div class="muted t-sm">' + esc(D.LEVELS[lp.level].name) + ' · ' + S().xp.toLocaleString('en-AU') + ' XP</div></div></div>' +
-      '<div class="card"><div class="row row--between" style="margin-bottom:12px"><div class="list-item__title">Your plan</div><button class="btn btn--plain btn--sm" data-act="editPlan">Change' + icon('right', 'ic-sm') + '</button></div><dl class="kv">' +
-        '<dt>Gym</dt><dd>' + esc(E.gymName(plan.gymId)) + '</dd>' +
-        '<dt>Days</dt><dd>' + esc(plan.days.map((d) => App.DOW_LONG[d]).join(', ')) + '</dd>' +
-        '<dt>Time</dt><dd>' + esc(timeL) + ' · ' + plan.mins + ' min</dd>' +
-        '<dt>Plan</dt><dd>' + esc(fmtDate(plan.start, 'dm')) + ' – ' + esc(fmtDate(plan.end, 'dm')) + ' (' + plan.weeks + ' wks)</dd>' +
-        (p.event ? '<dt>Goal</dt><dd>' + esc(p.event.name) + ' · ' + esc(fmtDate(p.event.date, 'dm')) + '</dd>' : '') +
-      '</dl></div>' +
-      '<div class="card"><div class="list-item__title">Rewards from your partner</div><p class="t-sm muted" style="margin:4px 0 12px">Unlocked by finishing sessions. Make them something to look forward to.</p>' +
-        [2, 4, 6].filter((w) => w <= plan.weeks).map((w) => '<div class="field" style="margin-bottom:10px"><label class="field__label" for="rw' + w + '">Week ' + w + ' · after ' + plan.days.length * w + ' sessions</label><input id="rw' + w + '" class="input" style="font-size:16px" data-in="reward" data-w="' + w + '" value="' + esc(rw[w] || '') + '" placeholder="e.g. A massage"></div>').join('') + '</div>' +
-      '<div class="card"><div class="list-item__title" style="margin-bottom:8px">Health</div><dl class="kv"><dt>Asthma</dt><dd>' + (p.health.asthma ? 'Yes · puffer reminders on' : 'No') + '</dd><dt>Screening</dt><dd>' + (p.health.flag ? (p.health.cleared ? 'Cleared by GP' : 'See your GP first') : 'All clear') + '</dd></dl>' +
-        (p.health.asthma ? '<p class="t-sm muted" style="margin-top:12px">If your chest tightens: stop, use your reliever as your asthma action plan says. If symptoms come back a second time, stop for the day. In an emergency call 000.</p>' : '') + '</div>' +
-      '<div class="card"><div class="list-item__title" style="margin-bottom:6px">Settings</div>' +
-        '<div class="list-item"><span class="grow"><span class="list-item__title">Sounds</span><br><span class="list-item__sub">Little chimes for sets and rewards</span></span><button class="switch' + (S().settings.sound ? ' is-on' : '') + '" data-act="toggleSound" role="switch" aria-checked="' + S().settings.sound + '" aria-label="Sounds"></button></div>' +
-        '<div class="list-item" style="display:grid;gap:10px"><span class="list-item__title">Appearance</span><div class="seg">' + [['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map((o) => '<button class="seg__btn' + (theme === o[0] ? ' is-on' : '') + '" data-act="setTheme" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div></div>' +
-        '<div class="list-item"><span class="grow"><span class="list-item__title">Reminders</span><br><span class="list-item__sub">Notifications arrive with the App Store version</span></span><span class="pill tone-blue">Soon</span></div>' +
-        '<button class="list-item" data-act="openInstall"><span class="grow"><span class="list-item__title">Add to Home Screen</span><br><span class="list-item__sub">Use Spotter like an app on your iPhone</span></span>' + icon('right', 'ic-sm') + '</button>' +
-      '</div>' +
-      '<div class="card"><div class="list-item__title">Back up your progress</div><p class="t-sm muted" style="margin:4px 0 12px">Everything stays on this phone. Copy a backup code to keep it somewhere safe, or paste one to restore.</p>' +
-        '<div class="row"><button class="btn btn--sm btn--soft" data-act="copyBackup">' + icon('copy', 'ic-sm') + 'Copy backup code</button><button class="btn btn--sm btn--ghost" data-act="showRestore">Restore</button></div>' +
-        '<div data-restore hidden style="margin-top:12px;display:grid;gap:8px"><label class="visually-hidden" for="restoreCode">Backup code</label><textarea id="restoreCode" class="input code" placeholder="Paste your backup code"></textarea><button class="btn btn--sm" data-act="restoreBackup">Restore from code</button></div>' +
-      '</div>' +
-      '<div class="card"><div class="list-item__title">Prototype tools</div><p class="t-sm muted" style="margin:4px 0 12px">For trying Spotter out. Jump ahead a few days to see how the plan reacts, or fill in example progress.</p>' +
-        '<div class="field"><div class="field__label">Pretend today is</div><div class="seg">' + [[0, 'Real'], [1, '+1 day'], [3, '+3'], [7, '+1 wk']].map((o) => '<button class="seg__btn' + (S().dev.offset === o[0] ? ' is-on' : '') + '" data-act="timeTravel" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div></div>' +
-        '<div class="row" style="margin-top:12px;flex-wrap:wrap"><button class="btn btn--sm btn--soft" data-act="demoProgress">' + icon('sparkle', 'ic-sm') + 'Fill example progress</button><button class="btn btn--sm btn--ghost" data-act="resetAsk" style="color:var(--red-text)">Start over</button></div>' +
-      '</div>' +
-      '<div class="card card--flat"><div class="list-item__title">About this prototype</div><ul class="bullets" style="margin-top:10px">' +
-        '<li>Plans, sessions, weight suggestions, food check-ins, rewards and the coach all work.</li>' +
-        '<li>Machine photos and locations arrive after each gym is mapped in person.</li>' +
-        '<li>A live human coach, notifications and syncing between phones come with the full app.</li>' +
-        '<li>General guidance only. It doesn’t replace advice from your GP.</li></ul></div>';
-    App.sheet('You', body);
+  function placeBox(m) {
+    if (App.Coach.expecting() !== 'place' || m !== App.Coach.latest()) return '';
+    return '<div class="eatout" data-composer style="margin-top:14px"><div class="eatout__wrap">' + icon('search') + '<label class="vh" for="coachPlace">Restaurant name</label><input id="coachPlace" class="input" placeholder="Restaurant name" autocomplete="off" autocapitalize="words" enterkeyhint="send" data-enter="coachSend"></div><button class="btn btn--accent btn--icon" data-act="coachSend" aria-label="Send">' + icon('arrow') + '</button></div>';
   }
-
-  // ── Celebrations (queued so they never overlap) ───────────────────────────
-  function celebrate() {
-    if (!App.Q.length || App.topLayer() || document.querySelector('.rest')) return;
-    const it = App.Q.shift();
-    let html = '';
-    if (it.t === 'badge') {
-      const b = D.BADGES.find((x) => x.id === it.id);
-      const col = { blue: 'var(--blue)', red: 'var(--red)', yellow: 'var(--yellow)', green: 'var(--green)', gold: 'var(--gold)' }[b.tone];
-      html = '<div class="modal"><div class="medal"><div class="rays"></div><div class="medal__spin">' + medal(col, b.icon, b.tone === 'yellow' || b.tone === 'gold') + '</div><div class="medal__shine"></div></div>' +
-        '<div class="eyebrow">Badge unlocked</div><h2 class="modal__title display">' + esc(b.name) + '</h2><p class="modal__text">' + esc(b.desc) + '</p><button class="btn" data-act="closeLayer">Nice!</button></div>';
-      App.sound('badge'); App.haptic([20, 40, 20]); setTimeout(() => App.confetti('stars'), 350);
-    } else if (it.t === 'level') {
-      const L = D.LEVELS[it.level];
-      html = '<div class="modal"><div class="medal"><div class="rays"></div><div class="medal__spin">' + App.levelPlate(it.level, '') + '</div><div class="medal__shine"></div></div>' +
-        '<div class="eyebrow">Level ' + (it.level + 1) + '</div><h2 class="modal__title display">You earned the ' + esc(L.name.toLowerCase()) + '</h2><p class="modal__text">' + (D.LEVELS[it.level + 1] ? 'Next up: the ' + esc(D.LEVELS[it.level + 1].name.toLowerCase()) + ' at ' + D.LEVELS[it.level + 1].xp.toLocaleString('en-AU') + ' XP.' : 'The top plate. You’re a regular now.') + '</p><button class="btn" data-act="closeLayer">Let’s go</button></div>';
-      App.sound('level'); App.haptic([30, 50, 30, 50, 60]); setTimeout(() => App.confetti('plates'), 300);
-    } else if (it.t === 'reward') {
-      html = '<div class="modal"><div class="medal"><div class="rays"></div><div class="medal__spin">' + medal('var(--yellow)', 'gift', true) + '</div><div class="medal__shine"></div></div>' +
-        '<div class="eyebrow">Week ' + it.week + ' reward unlocked</div><h2 class="modal__title display">' + esc(it.text) + '</h2><p class="modal__text">You earned it. Show this to your partner and claim it.</p><button class="btn" data-act="closeLayer">Claim it</button></div>';
-      App.sound('success'); App.haptic([30, 60, 30]); setTimeout(() => App.confetti('fireworks'), 300);
-    }
-    App.openLayer(html, { modal: true });
+  function repliesHtml(m) {
+    if (!m || !m.replies || !m.replies.length || App.Coach.isBusy()) return '';
+    return '<div class="replies">' + m.replies.map((r, i) => '<button class="reply" data-act="coachReply" data-v="' + m.id + '|' + i + '">' + esc(r.label) + '</button>').join('') + '</div>';
   }
-  function medal(col, ic, dark) {
-    return '<svg viewBox="0 0 100 100" style="width:100%;height:100%"><circle cx="50" cy="50" r="47" fill="' + col + '"/><circle cx="50" cy="50" r="38" fill="none" stroke="' + (dark ? 'rgba(0,0,0,.18)' : 'rgba(255,255,255,.55)') + '" stroke-width="3"/>' +
-      '<g transform="translate(26 26) scale(2)" fill="none" stroke="' + (dark ? '#231800' : '#fff') + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (icon(ic).match(/<svg[^>]*>([\s\S]*)<\/svg>/) || [])[1] + '</g></svg>';
+  function weekCard() {
+    const w = E.week();
+    return '<button class="card card--tap weekcard" data-act="openWeek" aria-label="This week: ' + w.train + ' of ' + w.trainMax + ' sessions, ' + App.fmtKg(w.eat) + ' of ' + w.eatMax + ' good food days">' +
+      App.rings([{ pct: w.trainMax ? w.train / w.trainMax : 0, cls: 'r-train' }, { pct: w.eat / w.eatMax, cls: 'r-eat' }], 104, 14) +
+      '<div class="legend"><div><div class="legend__label l-train">Train</div><div class="legend__val">' + w.train + '<small>/' + w.trainMax + ' sessions</small></div></div>' +
+      '<div><div class="legend__label l-eat">Eat well</div><div class="legend__val">' + App.fmtKg(w.eat) + '<small>/' + w.eatMax + ' days</small></div></div></div>' +
+      icon('right', 'cell__chev weekcard__chev') + '</button>';
   }
-
-  // ── Helpers for iOS install hint ──────────────────────────────────────────
+  function goalCell() {
+    const plan = S().plan; const ev = plan.event;
+    const days = Math.max(0, diffDays(today(), ev ? ev.date : plan.end));
+    return cell({ act: 'openGoal', tile: [ev ? 'plane' : 'flag', 'bg-blue'], title: esc(ev ? ev.name : 'Finish line'), sub: days + ' ' + App.plural(days, 'day') + ' to go · ' + esc(fmtDate(ev ? ev.date : plan.end, 'dm')) });
+  }
+  function rewardCell() {
+    const r = E.partnerRewards().find((x) => !x.open); if (!r) return '';
+    const left = Math.max(0, r.need - E.totals().done);
+    return cell({ act: 'openRewards', tile: ['gift', 'bg-gold'], title: esc(r.text), sub: left + ' more ' + App.plural(left, 'session') + ' to unlock' });
+  }
   function isIOS() { const ua = navigator.userAgent || ''; return /iphone|ipad|ipod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
   function standalone() { return window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); }
+  function installCell() {
+    if (!isIOS() || standalone() || window.claude || S().seen.install) return '';
+    return cell({ act: 'openInstall', tile: ['plus', 'bg-ink'], title: 'Add Spotter to your Home Screen', sub: 'Opens full screen and keeps your progress safe' });
+  }
 
-  App.Views = { shell, reveal, heroHtml, previewSheet, notTodaySheet, packSheet, gameplanSheet, weekendSheet, renderWeekend, mealSheet, installSheet, checkinSheet, renderCheckin, meSheet, celebrate, checkinButtons, exLine, ring, spark, miniPlate };
+  // ── Train ─────────────────────────────────────────────────────────────────
+  function slotState(sl) {
+    const d = E.slotDate(sl); const t = today();
+    if (E.isSkipped(sl)) return 'skip';
+    if (E.isDone(sl)) return 'done';
+    if (d === t) return 'today';
+    if (d < t) return 'missed';
+    return 'later';
+  }
+  function slotDot(sl, st) {
+    st = st || slotState(sl);
+    return '<span class="slotdot' + (st === 'done' ? ' is-done' : st === 'today' ? ' is-next' : st === 'skip' ? ' is-skip' : '') + '">' + (st === 'done' ? icon('check') : sl.key) + '</span>';
+  }
+  const STATE_WORD = { done: 'Done', today: 'Today', missed: 'Missed', skip: 'Skipped', later: '' };
+  function trainView() {
+    const s = S(); const plan = s.plan; const t = today(); const wk = weekStart(t);
+    let h = header('Train', E.gymName(plan.gymId)) + '<div class="page">';
+    const week = plan.slots.filter((sl) => { const d = E.slotDate(sl); return d >= wk && d <= addDays(wk, 6); }).sort((a, b) => (E.slotDate(a) < E.slotDate(b) ? -1 : 1));
+    const inner = week.length
+      ? group(week.map((sl) => { const st = slotState(sl); return cell({ act: 'previewSession', v: sl.id, lead: slotDot(sl, st), title: esc(E.sessionName(sl)), sub: esc(DOW_LONG[App.dow(E.slotDate(sl))] + ' · ' + plan.sessions[sl.key].title), value: STATE_WORD[st] }); }), true)
+      : '<div class="callout callout--blue">' + icon('calendar') + '<div>' + (plan.start > t ? 'Your plan starts ' + esc(fmtDate(plan.start, 'long')) + '.' : 'No sessions this week.') + '</div></div>';
+    h += sec('This week', '<span class="sec__aside">Week ' + curWeekNo() + ' of ' + plan.weeks + '</span>', inner);
+    // The whole plan, a week per dropdown.
+    const weeks = [];
+    for (let w = 1; w <= plan.weeks; w++) {
+      const ws = addDays(weekStart(plan.start), (w - 1) * 7);
+      const slots = plan.slots.filter((sl) => sl.week === w);
+      const done = slots.filter((sl) => E.isDone(sl)).length;
+      const ph = E.phaseFor(w, plan);
+      const head = cell({ act: 'toggleDisc', v: 'week' + w, title: 'Week ' + w + (w === curWeekNo() && plan.start <= t ? ' <span class="tag tag--pick" style="margin-left:6px;vertical-align:2px">Now</span>' : ''), sub: esc(ph.name + ' · ' + fmtDate(ws, 'dm') + ' – ' + fmtDate(addDays(ws, 6), 'dm')), value: slots.length ? done + '/' + slots.length : '' });
+      const panel = slots.length ? slots.map((sl) => { const st = slotState(sl); return '<button class="slotline" data-act="previewSession" data-v="' + sl.id + '">' + slotDot(sl, st) + '<span class="cell__main"><span class="cell__title">' + esc(E.sessionName(sl)) + '</span><span class="cell__sub">' + esc(fmtDate(E.slotDate(sl), 'short')) + '</span></span><span class="cell__value" style="font-size:15px">' + STATE_WORD[st] + '</span>' + chev() + '</button>'; }).join('') : '<p class="muted" style="font-size:15px">Rest week.</p>';
+      weeks.push(disc('week' + w, head, panel));
+    }
+    h += sec('Your plan', '<span class="sec__aside">' + esc(E.phaseFor(curWeekNo(), plan).name) + '</span>', '<div class="group">' + weeks.join('') + '</div>');
+    // Progress, summarised; the detail is a tap away.
+    const tot = E.totals(); const streak = E.streakWeeks(); const best = bestLift();
+    const earned = Object.keys(s.awards).length;
+    h += sec('Progress', '<button class="sec__link" data-act="openProgress">See all</button>', group([
+      cell({ act: 'openProgress', tile: ['check', 'bg-accent'], title: 'Sessions', value: tot.done + ' of ' + tot.total }),
+      cell({ act: 'streakInfo', tile: ['flame', 'bg-red'], title: 'Weeks on target', value: streak + ' in a row' }),
+      best ? cell({ act: 'openExercise', v: best.id, tile: ['trend', 'bg-green'], title: esc(D.EX[best.id].name), sub: 'Your biggest jump so far', value: '<span class="delta">+' + App.fmtKg(best.d) + ' kg</span>' }) : '',
+      cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: earned + ' of ' + D.AWARDS.length }),
+    ], true));
+    h += sec('More', '', group([
+      cell({ act: 'openLibrary', tile: ['list', 'bg-blue'], title: 'Exercise guide', sub: 'How to set up and do every move' }),
+      cell({ act: 'openGym', tile: ['pin', 'bg-purple'], title: 'Your gym', sub: esc(E.gymName(plan.gymId)) }),
+      cell({ act: 'openPack', tile: ['bag', 'bg-teal'], title: 'Pack your bag', sub: 'What to bring each session' }),
+    ], true));
+    return h + '</div>';
+  }
+  function bestLift() {
+    const h = E.liftHistory();
+    return Object.keys(h).filter((id) => D.EX[id].unit === 'kg' && !D.EX[id].assist && h[id].length > 1).map((id) => ({ id, d: h[id][h[id].length - 1].v - h[id][0].v })).filter((x) => x.d > 0).sort((a, b) => b.d - a.d)[0] || null;
+  }
+
+  // ── Eat ───────────────────────────────────────────────────────────────────
+  const FOOD_WORD = { on: 'On track', part: 'Partly', off: 'Off track' };
+  function eatView() {
+    const w = E.week();
+    let h = header('Eat', App.fmtKg(w.eat) + ' of ' + w.eatMax + ' good days this week') + '<div class="page">';
+    h += '<section class="sec">' + foodCard() + '</section>';
+    h += sec('Eating out', '', eatOutBox() + placesList());
+    h += sec('This week’s dinners', '<button class="sec__link" data-act="shuffleDinners">Shuffle</button>', dinnersList());
+    h += sec('Big meal coming up?', '', momentsList());
+    return h + '</div>';
+  }
+  function foodCard() {
+    const t = today(); const f = S().food[t]; const wk = weekStart(t);
+    const dots = [0, 1, 2, 3, 4, 5, 6].map((i) => { const d = addDays(wk, i); const x = S().food[d]; return '<div class="daydot' + (x ? ' is-' + x.s : '') + (d === t ? ' is-today' : '') + '"><i></i>' + DOW[i].charAt(0) + '</div>'; }).join('');
+    return '<div class="card foodcard"><div><div class="foodcard__title">' + (f ? 'Today: ' + FOOD_WORD[f.s].toLowerCase() : 'How’s eating going today?') + '</div><div class="muted" style="font-size:15px;margin-top:2px">' + (f ? 'Tap again to change it.' : 'One tap. Honest beats perfect.') + '</div></div>' +
+      '<div class="seg seg--lg" role="group" aria-label="Today’s eating">' + ['on', 'part', 'off'].map((v) => '<button class="seg__btn' + (f && f.s === v ? ' is-on' : '') + '" data-act="foodLog" data-v="' + v + '">' + FOOD_WORD[v] + '</button>').join('') + '</div>' +
+      '<div class="daydots" aria-hidden="true">' + dots + '</div></div>';
+  }
+  function eatOutBox() {
+    return '<div class="eatout"><div class="eatout__wrap">' + icon('search') + '<label class="vh" for="eatOutIn">Restaurant name</label><input id="eatOutIn" class="input" placeholder="Where are you eating?" autocomplete="off" autocapitalize="words" enterkeyhint="go" data-enter="eatOutGo"></div>' +
+      '<button class="btn btn--accent btn--icon" data-act="eatOutGo" aria-label="Get my order">' + icon('arrow') + '</button></div>' +
+      '<p class="fn">Type the place. I’ll put the menu in front of you with your order already picked.</p>';
+  }
+  function lockedToday(name) { return S().events.some((e) => e.type === 'eatout' && e.date === today() && e.title.toLowerCase() === String(name).toLowerCase()); }
+  function placesList() {
+    const pl = S().places.slice(0, 4);
+    if (!pl.length) return '';
+    return '<div class="sec__label">Recent</div>' + group(pl.map((x) => cell({ act: 'openMenu', v: x.name + '|' + x.cuisine, tile: ['pin', 'bg-red'], title: esc(x.name), sub: esc(cuisineName(x.cuisine)) + (lockedToday(x.name) ? ' · locked in today' : '') })), true);
+  }
+  function dinnersList() {
+    const t = today();
+    return group(E.dinners().map((x) => cell({ act: 'openMeal', v: x.meal.id, lead: '<span class="daytag' + (x.day === t ? ' is-today' : '') + '">' + DOW[App.dow(x.day)] + '</span>', title: esc(x.meal.name), sub: esc(cuisineName(x.meal.c)) })));
+  }
+  function momentsList() {
+    const t = today();
+    const up = S().events.filter((e) => e.date >= t && e.type !== 'eatout').sort((a, b) => (a.date < b.date ? -1 : 1)).slice(0, 3);
+    const plans = group(Object.keys(D.MOMENTS).map((k) => cell({ act: 'openMoment', v: k, tile: [D.MOMENTS[k].icon, 'bg-ink'], title: esc(D.MOMENTS[k].title), sub: 'A simple plan for it' })), true);
+    if (!up.length) return plans;
+    return '<div class="sec__label">Coming up</div>' + group(up.map((e) => cell({ act: 'openMoment', v: e.type, tile: [(D.MOMENTS[e.type] || {}).icon || 'calendar', 'bg-green'], title: esc(e.title), sub: esc(rel(e.date)) + ' · planned' })), true) +
+      '<div class="sec__label" style="margin-top:8px">Plan for</div>' + plans;
+  }
+
+  // ── Coach ─────────────────────────────────────────────────────────────────
+  function coachView() {
+    return '<div class="coachview"><header class="coachhead">' + avatarCoach(true) + '<div class="coachhead__main"><div class="coachhead__name">Coach</div><div class="coachhead__sub">Your trainer</div></div>' +
+      '<button class="avatar" data-act="openProfile" aria-label="Profile and settings">' + esc((firstName() || '?').charAt(0).toUpperCase()) + '</button></header>' +
+      '<div class="thread" data-coach-thread aria-live="polite">' + threadHtml() + '</div></div>' +
+      '<div class="dock"><div class="dock__inner">' + dockHtml('tab') + '</div></div>';
+  }
+  const shownMsgs = new Set();
+  function threadHtml() {
+    const chat = S().chat; let h = ''; let lastDay = '';
+    const nowMs = App.nowMs();
+    chat.forEach((m) => {
+      const d = App.iso(new Date(m.at));
+      if (d !== lastDay) { h += '<div class="dayline">' + esc(rel(d)) + ' <span>' + esc(clock(m.at)) + '</span></div>'; lastDay = d; }
+      const inst = shownMsgs.has(m.id) || nowMs - m.at > 5000 ? ' is-instant' : '';
+      shownMsgs.add(m.id);
+      if (m.from === 'note') h += '<div class="note' + inst + '">' + icon('check') + esc(m.text) + '</div>';
+      else if (m.from === 'me') h += '<div class="bubble bubble--me' + inst + '">' + esc(m.text) + '</div>';
+      else { h += '<div class="bubble bubble--coach' + (m.urgent ? ' bubble--urgent' : '') + inst + '">' + esc(m.text) + '</div>'; if (m.card) h += msgCard(m.card, inst); }
+    });
+    if (coachTyping) h += '<div class="typing" aria-label="Coach is typing"><i></i><i></i><i></i></div>';
+    return h;
+  }
+  function msgCard(c, inst) {
+    if (c.type === 'session') {
+      const sl = E.slotById(c.slot); if (!sl) return '';
+      const exs = E.exercisesFor(sl.key, sl.week, sl.id);
+      return '<div class="msgcard' + inst + '"><div><div class="msgcard__eyebrow">' + esc(rel(E.slotDate(sl))) + ' · ' + esc(E.timeOf(S().plan.time).at) + '</div><div class="msgcard__title">' + esc(E.sessionName(sl) + ' · ' + S().plan.sessions[sl.key].title) + '</div></div>' +
+        '<ul class="msgcard__list">' + exs.map((e, i) => '<li><span class="n">' + (i + 1) + '</span>' + esc(D.EX[e.id].name) + '</li>').join('') + '</ul>' + btn('Preview', 'previewSession', sl.id, 'btn--sm btn--tinted') + '</div>';
+    }
+    if (c.type === 'menu') {
+      const M = D.MENUS[c.cuisine]; if (!M) return '';
+      const scanned = placeMenu(c.place);
+      const picks = scanned ? scanned.picks : M.items.filter((it) => it.t === 'pick').slice(0, 3);
+      return '<div class="msgcard' + inst + '"><div><div class="msgcard__eyebrow">' + esc(M.name) + (scanned ? ' · from their menu' : ' · your order') + '</div><div class="msgcard__title">' + esc(c.place || M.name) + '</div></div>' +
+        '<ul class="msgcard__list">' + picks.map((it, i) => '<li><span class="n">' + (i + 1) + '</span>' + esc(it.n) + '</li>').join('') + '</ul>' + btn('Full menu', 'openMenu', c.place + '|' + c.cuisine, 'btn--sm btn--tinted') + '</div>';
+    }
+    if (c.type === 'dinners') {
+      return '<div class="msgcard' + inst + '"><div><div class="msgcard__eyebrow">This week</div><div class="msgcard__title">Your dinners</div></div><ul class="msgcard__list">' +
+        E.dinners().map((x) => '<li><span class="d">' + DOW[App.dow(x.day)] + '</span>' + esc(x.meal.name) + '</li>').join('') + '</ul></div>';
+    }
+    return '';
+  }
+  const TOPICS = [['eatout', 'I’m eating out'], ['sore', 'I’m sore'], ['short', 'Short on time'], ['move', 'Move a session'], ['motivation', 'Not feeling it'], ['progress', 'How am I going?']];
+  function topics(where) {
+    if (where !== 'session') return TOPICS;
+    const t = [['taken', 'Machine’s taken'], ['weight', 'What weight?'], ['pain', 'Something hurts'], ['sore', 'I’m sore']];
+    if (S().profile.health.asthma) t.splice(3, 0, ['asthma', 'My chest is tight']);
+    return t;
+  }
+  function dockRepliesHtml(where) {
+    if (App.Coach.isBusy() || coachTyping) return '';
+    const m = App.Coach.latest();
+    if (m && m.replies && m.replies.length) return '<div class="replies">' + m.replies.map((r, i) => '<button class="reply" data-act="coachReply" data-v="' + m.id + '|' + i + '">' + esc(r.label) + '</button>').join('') + '</div>';
+    return '<div class="replies replies--topics">' + topics(where).map(([k, label]) => '<button class="reply" data-act="coachTopic" data-v="' + k + '" data-label="' + esc(label) + '">' + esc(label) + '</button>').join('') + '</div>';
+  }
+  function dockHtml(where) {
+    return '<div data-coach-replies="' + where + '">' + dockRepliesHtml(where) + '</div>' +
+      '<div class="composer" data-composer><label class="vh" for="coachIn-' + where + '">Message your coach</label><input id="coachIn-' + where + '" data-coach-input placeholder="Message your coach" autocomplete="off" enterkeyhint="send" data-enter="coachSend"><button class="send" data-act="coachSend" aria-label="Send">' + icon('send') + '</button></div>';
+  }
+  // Coach updates land in place: the thread, the reply chips, Today's card and the badge.
+  function refreshCoach() {
+    App.$$('[data-coach-thread]').forEach((el) => { el.innerHTML = threadHtml(); });
+    App.$$('[data-coach-replies]').forEach((el) => { el.innerHTML = dockRepliesHtml(el.dataset.coachReplies); });
+    const slot = App.$('[data-coach-slot]'); if (slot) slot.innerHTML = coachCard();
+    const sheetThread = App.$('.sheet [data-coach-thread]');
+    if (sheetThread) { const b = sheetThread.closest('.sheet__body'); if (b) b.scrollTo({ top: b.scrollHeight, behavior: App.reduceMotion() ? 'auto' : 'smooth' }); }
+    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: App.reduceMotion() ? 'auto' : 'smooth' });
+    if ((App.tab === 'coach' && !App.Session.isOpen()) || sheetThread) App.Coach.markRead();
+    refreshBadge();
+    const dot = App.$('.sx__coach'); if (dot) dot.innerHTML = icon('coach') + (App.Coach.unread() && !sheetThread ? '<span class="dot-new"></span>' : '');
+  }
+  function setTyping(on) { coachTyping = on; refreshCoach(); }
+  function coachSheet() {
+    const L = App.sheet('Coach', '<div class="thread thread--sheet" data-coach-thread aria-live="polite">' + threadHtml() + '</div>', { tall: true, foot: dockHtml('session') });
+    const f = L.querySelector('.sheet__foot'); if (f) f.classList.add('sheet__foot--dock');
+    const b = App.$('.sheet__body', App.topLayer()); if (b) b.scrollTop = b.scrollHeight;
+    App.Coach.markRead(); refreshBadge();
+  }
+
+  // ── Search ────────────────────────────────────────────────────────────────
+  const TYPE_BG = { Training: 'bg-accent', Exercises: 'bg-blue', Food: 'bg-green', Restaurants: 'bg-red', 'Ask your coach': 'bg-purple', You: 'bg-ink' };
+  let searchEl = null;
+  function openSearch() {
+    if (searchEl) return;
+    searchEl = document.createElement('div');
+    searchEl.className = 'search'; searchEl.setAttribute('role', 'dialog'); searchEl.setAttribute('aria-label', 'Search');
+    searchEl.innerHTML = '<div class="search__bar"><label class="search__field">' + icon('search') + '<span class="vh">Search</span><input id="searchIn" type="search" placeholder="Search" autocomplete="off" enterkeyhint="search" data-in="search" data-enter="searchEnter"></label><button class="search__cancel" data-act="closeSearch">Cancel</button></div>' +
+      '<div class="search__body" data-search-body>' + searchBody('') + '</div>';
+    document.body.appendChild(searchEl);
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => { const i = App.$('#searchIn'); if (i) i.focus(); }, 30);
+  }
+  function closeSearch() { if (!searchEl) return; searchEl.remove(); searchEl = null; document.body.style.overflow = ''; }
+  function resultCell(it) { return cell({ act: 'searchGo', v: it.id, tile: [it.icon, TYPE_BG[it.type] || 'bg-ink'], title: esc(it.title), sub: it.sub ? esc(it.sub) : '' }); }
+  function searchBody(q) {
+    q = String(q || '').trim();
+    if (!q) {
+      const sug = E.suggestions(); const rec = E.recents().filter((x) => !sug.some((y) => y.id === x.id));
+      return '<div class="sec"><div class="sec__label">Suggested</div>' + group(sug.map(resultCell), true) + '</div>' +
+        (rec.length ? '<div class="sec"><div class="sec__label">Recent</div>' + group(rec.map(resultCell), true) + '</div>' : '');
+    }
+    const res = E.search(q); const types = [];
+    res.forEach((r) => { if (!types.includes(r.type)) types.push(r.type); });
+    const extra = [];
+    const cu = E.detectCuisine(q); const place = q === q.toLowerCase() ? q.replace(/\b([a-z])/g, (m) => m.toUpperCase()) : q;
+    if (q.length >= 3 && (cu || !res.length)) extra.push(cell({ act: 'searchPlace', tile: ['fork', 'bg-red'], title: 'Order at ' + esc(place), sub: (cu ? esc(cuisineName(cu)) + ' · ' : '') + 'menu with your picks' }));
+    extra.push(cell({ act: 'searchAsk', tile: ['coach', 'bg-purple'], title: 'Ask your coach', sub: '“' + esc(q) + '”' }));
+    const restFirst = cu && !res.some((r) => r.type === 'Restaurants' && r.title.toLowerCase() === q.toLowerCase());
+    let h = restFirst ? '<div class="sec">' + group(extra, true) + '</div>' : '';
+    h += types.map((t) => '<div class="sec"><div class="sec__label">' + esc(t) + '</div>' + group(res.filter((r) => r.type === t).map(resultCell), true) + '</div>').join('');
+    if (!res.length && !restFirst) h += '<p class="search__empty">Nothing in your plan matches. Try one of these:</p>';
+    if (!restFirst) h += '<div class="sec">' + group(extra, true) + '</div>';
+    return h;
+  }
+  function renderSearch(q) { const b = App.$('[data-search-body]'); if (b) b.innerHTML = searchBody(q); }
+
+  // ── Sessions ──────────────────────────────────────────────────────────────
+  function exRow(e, slotId) {
+    const ex = D.EX[e.id]; const sg = E.suggest(e.id, slotId);
+    const rng = ex.reps ? ex.reps[0] + '–' + ex.reps[1] + (ex.unit === 'sec' ? ' sec' : ex.perSide ? ' each side' : ' reps') : '';
+    return cell({ act: 'openExercise', v: e.id, art: ex.art, title: esc(ex.name), sub: e.sets + ' sets · ' + rng, value: esc(sg.mode === 'find' ? 'Find it' : sg.title) });
+  }
+  function previewSheet(id) {
+    const sl = E.slotById(id); if (!sl) return;
+    const plan = S().plan; const d = E.slotDate(sl); const done = E.isDone(sl);
+    const exs = E.exercisesFor(sl.key, sl.week, sl.id); const phase = E.phaseFor(sl.week, plan);
+    const log = S().log.find((l) => l.slot === id);
+    const cardio = (x, role) => cell({ act: 'openExercise', v: x.id, art: D.EX[x.id].art, title: role, sub: esc(D.EX[x.id].name) + ' · ' + x.min + ' min', value: '' });
+    let body = '<div class="sheet__lead"><div class="eyebrow">' + esc(fmtDate(d, 'long')) + ' · Week ' + sl.week + '</div><h1 class="sheet__h1">' + esc(plan.sessions[sl.key].title) + '</h1></div>';
+    if (done && log) body += '<div class="callout callout--green">' + icon('check') + '<div><b>Done ' + esc(App.relLow(log.date)) + '.</b> ' + log.mins + ' min · ' + App.sum(log.ex.map((e) => e.sets.length)) + ' sets · ' + Math.round(App.sum(log.ex.map((e) => App.sum(e.sets.map((x) => (x.w || 0) * x.r))))).toLocaleString('en-AU') + ' kg lifted</div></div>';
+    if (S().trims[id] || S().eases[id]) body += '<div class="callout">' + icon('sliders') + '<div>' + (S().trims[id] ? 'Cut to ' + S().trims[id] + ' exercises, two sets each. ' : '') + (S().eases[id] ? 'Weights eased one step.' : '') + '</div></div>';
+    body += '<div class="group group--tiles">' + cardio(plan.warmup, 'Warm-up') + exs.map((e) => exRow(e, id)).join('') + (plan.finisher ? cardio(plan.finisher, 'Finisher') : '') + '</div>';
+    body += '<p class="fn"><b>' + esc(phase.name) + '.</b> ' + esc(phase.note) + ' Tap any exercise to see how it’s done.</p>';
+    const canStart = !done && !S().active && !E.isSkipped(sl);
+    const label = d === today() ? 'Start session' : d < today() ? 'Do it now' : 'Start it now instead';
+    App.sheet(esc(E.sessionName(sl)), body, {
+      foot: canStart ? btn(label, 'startSession', id, 'btn--block ' + (d <= today() ? 'btn--accent' : 'btn--tinted')) : S().active ? btn('Resume your session', 'resumeSession', null, 'btn--block btn--accent') : '',
+    });
+  }
+  // Move, shorten, ease or skip a session. Each goes through the coach so the thread keeps the story.
+  function sessionOptions(id) {
+    const sl = E.slotById(id); if (!sl) return;
+    const base = E.slotDate(sl) < today() ? today() : E.slotDate(sl);
+    const d1 = E.freeDayAfter(base, 0); const d2 = E.freeDayAfter(d1, 0); const d3 = E.freeDayAfter(d2, 0);
+    const chips = (items) => '<div class="chips">' + items.map((x) => '<button class="chip" data-act="coachAct" data-v="' + esc(x[0]) + '" data-label="' + esc(x[2]) + '">' + esc(x[1]) + '</button>').join('') + '</div>';
+    const day = (d) => rel(d) === 'Tomorrow' ? 'Tomorrow' : fmtDate(d, 'short');
+    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(rel(E.slotDate(sl))) + '</div><h1 class="sheet__h1">' + esc(E.sessionName(sl) + ' · ' + S().plan.sessions[sl.key].title) + '</h1></div>' +
+      '<div class="group group--tiles">' +
+        cell({ act: 'previewSession', v: id, tile: ['list', 'bg-blue'], title: 'See the session' }) +
+        disc('opt-move', cell({ act: 'toggleDisc', v: 'opt-move', tile: ['calendar', 'bg-accent'], title: 'Move it to another day' }), chips([d1, d2, d3].map((d) => ['move|' + id + '|' + d, day(d), 'Can we move it to ' + DOW_LONG[App.dow(d)] + '?']))) +
+        disc('opt-short', cell({ act: 'toggleDisc', v: 'opt-short', tile: ['clock', 'bg-teal'], title: 'Short on time' }), chips([['trim|' + id + '|3', '20 minutes', 'I’ve only got 20 minutes'], ['trim|' + id + '|4', '30 minutes', 'I’ve only got 30 minutes']])) +
+        disc('opt-sore', cell({ act: 'toggleDisc', v: 'opt-sore', tile: ['heart', 'bg-red'], title: 'Feeling sore' }), chips([['ease|' + id + '|legs', 'Legs', 'My legs are sore'], ['ease|' + id + '|upper', 'Upper body', 'My upper body is sore'], ['ease|' + id + '|all', 'All over', 'I’m sore all over']])) +
+        cell({ act: 'coachAct', v: 'skip|' + id, tile: ['skip', 'bg-ink'], title: 'Skip this one', attrs: ' data-label="I need to skip this one"', chev: false }) +
+      '</div><p class="fn">Your coach adjusts the plan and lets you know what changed.</p>';
+    App.sheet('Options', body);
+  }
+
+  // ── Week, goal, rewards, progress, awards ─────────────────────────────────
+  function weekSheet() {
+    const t = today(); const wk = weekStart(t); const w = E.week(wk);
+    const rows = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const d = addDays(wk, i); const sl = E.slotsOn(d)[0] || null; const f = S().food[d];
+      const st = sl ? slotState(sl) : null;
+      const trainTxt = sl ? E.sessionName(sl) + (st === 'done' ? ' done' : st === 'missed' ? ' missed' : '') : 'Rest';
+      const foodTag = f ? '<span class="tag ' + (f.s === 'on' ? 'tag--ok' : 'tag--treat') + '">' + FOOD_WORD[f.s] + '</span>' : '';
+      return cell({ lead: '<span class="daytag' + (d === t ? ' is-today' : '') + '">' + DOW[i] + '</span>', title: esc(trainTxt), sub: sl ? esc(S().plan.sessions[sl.key].title) : '', trail: foodTag });
+    });
+    const body = '<div class="weekcard" style="padding:0">' + App.rings([{ pct: w.trainMax ? w.train / w.trainMax : 0, cls: 'r-train' }, { pct: w.eat / w.eatMax, cls: 'r-eat' }], 92, 12) +
+      '<div class="legend"><div><div class="legend__label l-train">Train</div><div class="legend__val">' + w.train + '<small>/' + w.trainMax + '</small></div></div><div><div class="legend__label l-eat">Eat well</div><div class="legend__val">' + App.fmtKg(w.eat) + '<small>/' + w.eatMax + '</small></div></div></div></div>' +
+      group(rows) + '<p class="fn">Close both rings for a perfect week: every planned session, and five good food days. “Partly” counts as half.</p>';
+    App.sheet('This week', body); animateRings();
+  }
+  function goalSheet() {
+    const p = S().profile; const plan = S().plan; const ev = plan.event;
+    const days = Math.max(0, diffDays(today(), ev ? ev.date : plan.end));
+    const tot = E.totals();
+    const body = '<div class="sheet__lead" style="justify-items:center;text-align:center;padding-top:6px"><div class="bignum num" data-count="' + days + '">' + days + '</div><div class="muted">' + App.plural(days, 'day') + ' to ' + esc(ev ? ev.name : 'the finish line') + ' · ' + esc(fmtDate(ev ? ev.date : plan.end, 'long')) + '</div></div>' +
+      '<div class="card"><div style="display:flex;justify-content:space-between;font-size:15px"><span class="muted">Sessions</span><span><b>' + tot.done + '</b> of ' + tot.total + '</span></div><div class="progressline"><i data-w="' + Math.round((tot.done / Math.max(1, tot.total)) * 100) + '"></i></div></div>' +
+      (p.why || (p.feel && p.feel.length) ? '<div class="sec"><div class="sec__label">Your why</div><div class="card" style="display:grid;gap:12px">' + (p.why ? '<p class="quote">' + esc(p.why) + '</p>' : '') + (p.feel && p.feel.length ? '<p class="muted" style="font-size:15px">You want to feel ' + esc(p.feel.join(', ').toLowerCase()) + '.</p>' : '') + '</div></div>' : '') +
+      rewardsGroup();
+    App.sheet(ev ? 'Your goal' : 'Finish line', body, { left: '<button class="btn btn--plain" style="padding:0" data-act="editGoal">Edit</button>' });
+    App.countUp(App.$('[data-count]', App.topLayer()), days, 900);
+    animateBars();
+  }
+  function rewardsGroup() {
+    const rw = E.partnerRewards(); if (!rw.length) return '';
+    const done = E.totals().done;
+    return '<div class="sec"><div class="sec__label">Rewards</div>' + group(rw.map((r) => cell({ tile: [r.open ? 'gift' : 'lock', r.open ? 'bg-gold' : 'bg-ink'], title: esc(r.text), sub: r.open ? 'Unlocked. Enjoy it.' : 'Week ' + r.week + ' · ' + Math.max(0, r.need - done) + ' more ' + App.plural(Math.max(0, r.need - done), 'session') }) ), true) + '</div>';
+  }
+  function rewardsSheet() {
+    const plan = S().plan; const rw = S().rewards || D.DEFAULT_REWARDS;
+    const body = '<p class="lead">Little things to look forward to, unlocked by showing up. Ask someone close to you to set them.</p>' + rewardsGroup() +
+      '<div class="sec"><div class="sec__label">Change them</div><div class="card" style="display:grid;gap:14px">' +
+      Object.keys(rw).map(Number).filter((w) => w <= plan.weeks).map((w) => '<div class="field"><label class="field__label" for="rw' + w + '">Week ' + w + ' · after ' + plan.days.length * w + ' sessions</label><input id="rw' + w + '" class="input" data-in="reward" data-w="' + w + '" value="' + esc(rw[w] || '') + '" placeholder="e.g. A massage"></div>').join('') + '</div></div>';
+    App.sheet('Rewards', body);
+  }
+  function progressSheet() {
+    const s = S(); const tot = E.totals();
+    const mins = App.sum(s.log.map((l) => l.mins || 0));
+    const kg = Math.round(App.sum(s.log.map((l) => App.sum(l.ex.map((e) => (D.EX[e.id] && D.EX[e.id].unit === 'kg' && !D.EX[e.id].assist) ? App.sum(e.sets.map((x) => x.w * x.r)) : 0)))));
+    const hist = E.liftHistory();
+    const lifts = Object.keys(hist).filter((id) => D.EX[id].unit !== 'min').map((id) => {
+      const v = hist[id].map((x) => x.v); const ex = D.EX[id]; const d = v[v.length - 1] - v[0];
+      const unit = ex.unit === 'kg' ? ' kg' : ex.unit === 'sec' ? ' s' : '';
+      return cell({ act: 'openExercise', v: id, art: ex.art, title: esc(ex.name), sub: App.fmtKg(v[v.length - 1]) + unit + (d > 0 && !ex.assist ? ' · <span class="delta">+' + App.fmtKg(d) + unit + '</span>' : ''), trail: spark(v) });
+    });
+    const body = '<div class="stats"><div class="stat"><div class="stat__v" data-count="' + tot.done + '">0</div><div class="stat__l">Sessions</div></div><div class="stat"><div class="stat__v" data-count="' + mins + '">0</div><div class="stat__l">Minutes</div></div><div class="stat"><div class="stat__v" data-count="' + kg + '">0</div><div class="stat__l">kg lifted</div></div></div>' +
+      group([cell({ act: 'streakInfo', tile: ['flame', 'bg-red'], title: 'Weeks on target', value: E.streakWeeks() + ' in a row' }), cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: Object.keys(s.awards).length + ' of ' + D.AWARDS.length })], true) +
+      '<div class="sec"><div class="sec__label">Your lifts</div>' + (lifts.length ? group(lifts, true) : '<div class="callout">' + icon('trend') + '<div>Your lifts show up here after your first session, with a line for each one as it climbs.</div></div>') + '</div>';
+    App.sheet('Progress', body);
+    App.$$('[data-count]', App.topLayer()).forEach((el) => App.countUp(el, Number(el.dataset.count), 900));
+  }
+  function awardsSheet() {
+    const got = S().awards;
+    const body = '<div class="awards">' + D.AWARDS.map((a) => '<button class="award' + (got[a.id] ? '' : ' is-locked') + '" data-act="awardInfo" data-v="' + a.id + '">' + App.medal(got[a.id] ? a.icon : 'lock', got[a.id] ? a.metal : 'locked', 76) + '<span class="award__name">' + esc(a.name) + '</span>' + (got[a.id] ? '<span class="award__date">' + esc(fmtDate(got[a.id], 'dm')) + '</span>' : '') + '</button>').join('') + '</div>';
+    App.sheet('Awards', body);
+  }
+  function awardInfo(id) {
+    const a = D.AWARDS.find((x) => x.id === id); if (!a) return; const got = S().awards[id];
+    App.openLayer('<div class="dialog"><div class="medal-wrap">' + App.medal(got ? a.icon : 'lock', got ? a.metal : 'locked', 120) + '</div><div class="eyebrow">' + (got ? 'Earned ' + esc(fmtDate(got, 'dm')) : 'Not yet') + '</div><h2 class="dialog__title">' + esc(a.name) + '</h2><p class="dialog__text">' + esc(a.desc) + '</p>' + btn(got ? 'Nice' : 'I’ll get it', 'closeLayer') + '</div>', { dialog: true });
+  }
+
+  // ── Exercises and the gym ─────────────────────────────────────────────────
+  function librarySheet() {
+    const plan = S().plan; const gym = E.gymOf(plan.gymId);
+    const inPlan = []; ['A', 'B'].forEach((k) => plan.sessions[k].ex.forEach((base) => { const id = S().swaps[base] || base; if (!inPlan.includes(id)) inPlan.push(id); }));
+    const alts = []; inPlan.forEach((id) => (D.EX[id].alts || []).concat(D.EX[S().swaps[id] ? id : id].alts || []).forEach((a) => { if (D.EX[a] && !inPlan.includes(a) && !alts.includes(a) && gym.kit.includes(a) && D.EX[a].unit !== 'min') alts.push(a); }));
+    const row = (id) => cell({ act: 'openExercise', v: id, art: D.EX[id].art, title: esc(D.EX[id].name), sub: esc(D.EX[id].focus) });
+    const body = '<div class="sec"><div class="sec__label">In your plan</div>' + group(inPlan.map(row), true) + '</div>' +
+      '<div class="sec"><div class="sec__label">Swaps if a machine’s taken</div>' + group(alts.map(row), true) + '</div>' +
+      '<div class="sec"><div class="sec__label">Warm-up</div>' + group(['bike', 'cross_trainer', 'treadmill'].map((id) => cell({ act: 'openExercise', v: id, art: D.EX[id].art, title: esc(D.EX[id].name), sub: 'Any of these works' })), true) + '</div>';
+    App.sheet('Exercise guide', body);
+  }
+  function exerciseSheet(id) {
+    const ex = D.EX[id]; if (!ex) return;
+    const set = S().exSettings[id] || {};
+    const mus = (ex.muscles || []).map((m) => D.MUSCLES[m]).concat((ex.muscles2 || []).map((m) => D.MUSCLES[m].toLowerCase()));
+    const past = []; S().log.slice().reverse().forEach((l) => l.ex.forEach((e) => { if (e.id === id && e.sets.length && past.length < 4) past.push({ date: l.date, e }); }));
+    const perf = (e) => ex.unit === 'kg' ? e.sets.map((x) => App.fmtKg(x.w) + '×' + x.r).join(', ') + ' kg' : e.sets.map((x) => x.r).join(', ') + (ex.unit === 'sec' ? ' s' : ' reps');
+    const body = '<div class="photo">' + (set.photo ? '<img src="' + set.photo + '" alt="Your photo of the ' + esc(ex.name) + '">' : art(ex.art)) + '</div>' +
+      '<div class="sheet__lead"><div class="eyebrow">' + esc(ex.focus || '') + '</div><h1 class="sheet__h1">' + esc(ex.name) + '</h1>' + (mus.length ? '<p class="muted" style="font-size:15px">Works your ' + esc(mus.slice(0, 1).join('').toLowerCase()) + (mus.length > 1 ? ', with help from ' + esc(mus.slice(1).join(', ').toLowerCase()) : '') + '.</p>' : '') + '</div>' +
+      (set.seat ? '<div class="callout callout--blue">' + icon('sliders') + '<div><b>Your settings:</b> ' + esc(set.seat) + '</div></div>' : '') +
+      '<div class="group">' +
+        (ex.setup ? disc('ex-setup', cell({ act: 'toggleDisc', v: 'ex-setup', title: 'Set up' }), '<ol class="steps">' + ex.setup.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>', true) : '') +
+        (ex.move ? disc('ex-move', cell({ act: 'toggleDisc', v: 'ex-move', title: 'The move' }), '<ol class="steps">' + ex.move.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>', true) : '') +
+        (ex.feel ? disc('ex-feel', cell({ act: 'toggleDisc', v: 'ex-feel', title: 'Where you’ll feel it' }), '<p style="font-size:16px">' + esc(ex.feel) + '</p>') : '') +
+        (ex.avoid && ex.avoid.length ? disc('ex-avoid', cell({ act: 'toggleDisc', v: 'ex-avoid', title: 'Avoid' }), '<ul class="dots-list">' + ex.avoid.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>') : '') +
+      '</div>' +
+      (past.length ? '<div class="sec"><div class="sec__label">Your history</div>' + group(past.map((x) => cell({ title: esc(perf(x.e)), sub: esc(fmtDate(x.date, 'short')) + (x.e.effort ? ' · ' + E.effortWord(x.e.effort) : '') }))) + '</div>' : '');
+    App.sheet(esc(ex.name), body);
+  }
+  function gymSheet() {
+    const plan = S().plan; const g = E.gymOf(plan.gymId);
+    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(g.generic ? 'Any gym' : g.area) + '</div><h1 class="sheet__h1">' + esc(g.generic ? 'Your gym' : g.brand + ' ' + g.branch) + '</h1></div>' +
+      '<div class="callout callout--blue">' + icon('pin') + '<div><b>Mapping coming.</b> Once this gym is mapped in person you’ll see a photo of each machine, where it is on the floor and its exact settings. For now every exercise shows the machine type and how to set it up.</div></div>' +
+      group([cell({ title: 'Machines in your plan', value: String(E.allSlots().length ? new Set(['A', 'B'].flatMap((k) => plan.sessions[k].ex)).size : 0) }), cell({ title: 'Swaps available', value: 'Yes' })]) +
+      group([cell({ act: 'editPlan', title: 'Change gym', cls: 'cell--link', chev: false })]);
+    App.sheet('Your gym', body);
+  }
+  function packSheet() {
+    const p = S().profile; const key = 'pack:' + today(); const st = S().seen[key] || {};
+    const items = [['water', 'Water bottle', 'water'], ['towel', 'Small towel', 'towel'], ['shoes', 'Closed shoes', 'shoe'], ['phones', 'Headphones', 'headphones']];
+    if (p.health.asthma) items.unshift(['puffer', 'Reliever puffer', 'puffer', 'Every session']);
+    const body = '<p class="lead">Packing the night before makes tomorrow easy.</p><div class="group checklist">' + items.map((it) => '<button class="cell' + (st[it[0]] ? ' is-on' : '') + '" data-act="packToggle" data-v="' + it[0] + '"><span class="checkbox">' + icon('check') + '</span><span class="cell__main"><span class="cell__title">' + esc(it[1]) + '</span>' + (it[3] ? '<span class="cell__sub">' + esc(it[3]) + '</span>' : '') + '</span>' + icon(it[2], 'ic muted') + '</button>').join('') + '</div>';
+    App.sheet('Pack your bag', body);
+  }
+
+  // ── Food sheets ───────────────────────────────────────────────────────────
+  function placeMenu(name) { const p = name && S().places.find((x) => x.name.toLowerCase() === String(name).toLowerCase()); return p && p.menu && p.menu.picks && p.menu.picks.length ? p.menu : null; }
+  function menuSheet(name, cu, replace) {
+    const M = D.MENUS[cu]; if (!M) return;
+    const place = name || M.name + ' restaurant';
+    const scanned = placeMenu(name);
+    const picks = scanned ? scanned.picks : M.items.filter((i) => i.t === 'pick').slice(0, 3);
+    const ok = scanned ? [] : M.items.filter((i) => i.t === 'ok'); const treat = scanned ? scanned.treats || [] : M.items.filter((i) => i.t === 'treat');
+    const rows = (items, tag) => items.map((it) => '<div class="menurow"><span class="menurow__name">' + esc(it.n) + (it.tip ? '<span class="menurow__tip">' + esc(it.tip) + '</span>' : '') + '</span>' + (tag ? '<span class="tag ' + tag[0] + '">' + tag[1] + '</span>' : '') + '</div>').join('');
+    const locked = lockedToday(place);
+    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(M.name) + ' · your order' + (locked ? ' · <span class="t-green">locked in</span>' : '') + '</div><h1 class="sheet__h1">' + esc(place) + '</h1></div>' +
+      '<div class="group"><ol class="picks">' + picks.map((it, i) => '<li class="pick"><span class="pick__n">' + (i + 1) + '</span><div><div class="pick__name">' + esc(it.n) + '</div>' + (it.why ? '<div class="pick__why">' + esc(it.why) + '</div>' : '') + (it.tip ? '<div class="pick__tip">' + icon('sparkle') + '<span>' + esc(it.tip) + '</span></div>' : '') + '</div></li>').join('') + '</ol></div>' +
+      (scanned ? '<p class="fn">Scanned from their menu ' + esc(App.relLow(App.iso(new Date(scanned.at)))) + '. Any one of these is a great order.</p>' : '<p class="fn">Any one of these is a great order. I picked them from a typical ' + esc(M.name.toLowerCase()) + ' menu, so if one isn’t on theirs, go for the closest thing.</p>') +
+      '<div data-scan-slot></div>' +
+      '<div class="group">' +
+        (ok.length ? disc('menu-ok', cell({ act: 'toggleDisc', v: 'menu-ok', title: 'Also a good choice', value: String(ok.length) }), rows(ok, ['tag--ok', 'Good'])) : '') +
+        (treat.length ? disc('menu-treat', cell({ act: 'toggleDisc', v: 'menu-treat', title: 'Save for a treat', value: String(treat.length) }), rows(treat, ['tag--treat', 'Treat'])) : '') +
+      '</div>';
+    const foot = locked ? '<button class="btn btn--block btn--tinted" disabled>' + icon('check') + 'Locked in</button>' : btn('Lock it in', 'lockMenu', (name || '') + '|' + cu, 'btn--block btn--accent') + '<p class="fn" style="text-align:center">I’ll check in tonight to see how it went.</p>';
+    const L = replace && App.topLayer() && App.topLayer().querySelector('[data-scan-slot]') ? (App.replaceSheet(body, foot), App.topLayer()) : App.sheet('Your order', body, { foot });
+    // In the claude.ai preview Claude can read a photo of the real menu.
+    if (name) App.Coach.canReadMenus().then((yes) => {
+      const slot = yes && L.isConnected && L.querySelector('[data-scan-slot]'); if (!slot) return;
+      slot.innerHTML = '<div class="group group--tiles"><label class="cell" style="cursor:pointer"><span class="cell__tile bg-blue">' + icon('camera') + '</span><span class="cell__main"><span class="cell__title">' + (scanned ? 'Scan their menu again' : 'Scan their menu') + '</span><span class="cell__sub">Snap a photo and I’ll pick from what they actually serve</span></span>' + chev() +
+        '<input class="vh" type="file" accept="image/*" capture="environment" data-change="menuPhoto" data-v="' + esc(name + '|' + cu) + '"></label></div>';
+    });
+  }
+  function menuScanning(on) {
+    const slot = App.$('[data-scan-slot]', App.topLayer() || document); if (!slot) return;
+    if (on) slot.innerHTML = '<div class="callout callout--blue"><span class="spinner" aria-hidden="true"></span><div><b>Reading the menu…</b> Picking the three best orders.</div></div>';
+  }
+  function cuisinePickSheet(name) {
+    const opts = ['italian', 'pizza', 'japanese', 'ramen', 'thai', 'chinese', 'vietnamese', 'korean', 'indian', 'middleeast', 'greek', 'mexican', 'pub', 'burgers', 'chicken', 'cafe'];
+    App.sheet('Eating out', '<div class="sheet__lead"><h1 class="sheet__h1">What kind of food is ' + esc(name) + '?</h1><p class="lead">One tap and I’ll pick your order.</p></div><div class="chips">' + opts.map((k) => '<button class="chip" data-act="pickCuisine" data-v="' + esc(name + '|' + k) + '">' + esc(D.MENUS[k].name) + '</button>').join('') + '</div>');
+  }
+  function dinnersSheet(replace) {
+    const t = today(); const cus = E.cuisines().map(cuisineName).filter(Boolean);
+    const body = '<p class="lead">Lighter takes on food you already eat' + (cus.length ? ': ' + esc(cus.slice(0, 4).join(', ')) : '') + '. Nothing to count.</p>' +
+      '<div class="group">' + E.dinners().map((x, i) => disc('din' + i, cell({ act: 'toggleDisc', v: 'din' + i, lead: '<span class="daytag' + (x.day === t ? ' is-today' : '') + '">' + DOW[App.dow(x.day)] + '</span>', title: esc(x.meal.name), sub: esc(cuisineName(x.meal.c)) }), '<ul class="dots-list">' + x.meal.tips.map((tp) => '<li>' + esc(tp) + '</li>').join('') + '</ul>', x.day === t)).join('') + '</div>' +
+      '<p class="fn">A good plate: half vegetables, a palm of protein and a fist of carbs.</p>';
+    if (replace && App.topLayer() && App.topLayer().querySelector('[data-dinners]')) { App.replaceSheet('<div data-dinners hidden></div>' + body); return; }
+    App.sheet('This week’s dinners', '<div data-dinners hidden></div>' + body, { foot: btn(icon('shuffle', 'ic-sm') + 'Shuffle', 'shuffleDinners', 'sheet', 'btn--block btn--tinted') });
+  }
+  function mealSheet(id) {
+    const m = D.MEALS.find((x) => x.id === id); if (!m) return;
+    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(cuisineName(m.c)) + '</div><h1 class="sheet__h1">' + esc(m.name) + '</h1></div>' +
+      '<div class="card"><div class="mini-h" style="margin-bottom:10px">Make it lighter</div><ul class="dots-list">' + m.tips.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>' +
+      '<p class="fn">A good plate: half vegetables, a palm of protein and a fist of carbs.</p>';
+    App.sheet('Dinner', body);
+  }
+  function momentSheet(k) {
+    const m = D.MOMENTS[k]; if (!m) return;
+    const t = today(); const wk = weekStart(t);
+    let sat = addDays(wk, 5); if (sat < t) sat = addDays(sat, 7);
+    let sun = addDays(wk, 6); if (sun < t) sun = addDays(sun, 7);
+    const days = [t, addDays(t, 1), sat, sun].filter((d, i, a) => a.indexOf(d) === i).slice(0, 4);
+    const planned = S().events.filter((e) => e.type === k && e.date >= t);
+    const body = '<div class="sheet__lead"><div class="dialog__icon" style="background:var(--green-soft);color:var(--green-text)">' + icon(m.icon) + '</div><h1 class="sheet__h1">' + esc(m.title) + '</h1></div>' +
+      '<div class="card"><ol class="steps">' + m.lines.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol></div>' +
+      (planned.length ? '<div class="callout callout--green">' + icon('check') + '<div>Planned for ' + esc(planned.map((e) => App.relLow(e.date)).join(' and ')) + '.</div></div>' : '') +
+      '<div class="sec"><div class="sec__label">Add it to your week</div><div class="chips">' + days.map((d) => '<button class="chip" data-act="momentAdd" data-v="' + k + '|' + d + '">' + esc(rel(d)) + '</button>').join('') + '</div></div>';
+    App.sheet('Plan ahead', body);
+  }
+
+  // ── Profile ───────────────────────────────────────────────────────────────
+  function profileSheet() {
+    const s = S(); const p = s.profile; const plan = s.plan; const theme = s.settings.theme;
+    const tm = E.timeOf(plan.time);
+    const body = '<div class="sheet__lead" style="justify-items:center;text-align:center"><span class="avatar" style="width:76px;height:76px;font-size:32px;margin:0">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</span><h1 class="sheet__h1">' + esc(p.name) + '</h1><p class="muted" style="font-size:15px">' + E.totals().done + ' ' + App.plural(E.totals().done, 'session') + ' · since ' + esc(fmtDate(p.created || plan.created, 'dm')) + '</p></div>' +
+      '<div class="sec"><div class="sec__label">Your plan</div>' + group([
+        cell({ title: 'Gym', value: esc(E.gymShort(plan.gymId)) }),
+        cell({ title: 'Days', value: esc(plan.days.map((d) => DOW[d]).join(', ')) }),
+        cell({ title: 'Time', value: esc(tm.label + ' · ' + plan.mins + ' min') }),
+        cell({ title: 'Dates', value: esc(fmtDate(plan.start, 'dm') + ' – ' + fmtDate(plan.end, 'dm')) }),
+        cell({ act: 'editPlan', title: 'Change my plan', cls: 'cell--link', chev: false }),
+      ]) + '</div>' +
+      '<div class="sec"><div class="sec__label">Goal and rewards</div>' + group([goalCell(), cell({ act: 'openRewards', tile: ['gift', 'bg-gold'], title: 'Rewards' }), cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: Object.keys(s.awards).length + ' of ' + D.AWARDS.length })], true) + '</div>' +
+      '<div class="sec"><div class="sec__label">Health</div>' + group([cell({ title: 'Asthma', value: p.health.asthma ? 'Yes' : 'No' }), cell({ title: 'Health check', value: p.health.flag ? (p.health.cleared ? 'Cleared by GP' : 'See your GP first') : 'All clear' })]) +
+        (p.health.asthma ? '<p class="fn">If your chest tightens: stop and use your reliever as your asthma action plan says. If it comes back a second time, stop for the day. In an emergency, call 000.</p>' : '') + '</div>' +
+      '<div class="sec"><div class="sec__label">Settings</div>' + group([
+        '<div class="cell"><span class="cell__main"><span class="cell__title">Sounds</span></span><button class="switch' + (s.settings.sound ? ' is-on' : '') + '" data-act="toggleSound" role="switch" aria-checked="' + s.settings.sound + '" aria-label="Sounds"></button></div>',
+        '<div class="cell" style="display:grid;gap:10px"><span class="cell__title">Appearance</span><div class="seg">' + [['system', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']].map((o) => '<button class="seg__btn' + (theme === o[0] ? ' is-on' : '') + '" data-act="setTheme" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div></div>',
+        isIOS() && !standalone() && !window.claude ? cell({ act: 'openInstall', title: 'Add to Home Screen' }) : '',
+      ]) + '</div>' +
+      '<div class="sec"><div class="sec__label">Your data</div><div class="group">' + disc('backup', cell({ act: 'toggleDisc', v: 'backup', title: 'Back up or restore' }),
+        '<p class="muted" style="font-size:15px">Everything stays on this phone. Copy a backup code and keep it somewhere safe.</p><div class="inrow"><button class="btn btn--sm btn--tinted" data-act="copyBackup">' + icon('copy', 'ic-sm') + 'Copy backup code</button></div>' +
+        '<label class="vh" for="restoreCode">Backup code</label><textarea id="restoreCode" class="input" placeholder="Paste a backup code to restore" style="min-height:76px;font-size:15px"></textarea><div><button class="btn btn--sm btn--tinted" data-act="restoreBackup">Restore</button></div>') + '</div></div>' +
+      '<div class="sec"><div class="sec__label">Prototype tools</div><div class="group">' + disc('tools', cell({ act: 'toggleDisc', v: 'tools', title: 'Try it out faster' }),
+        '<div class="field"><div class="field__label">Pretend today is</div><div class="seg">' + [[0, 'Today'], [1, '+1 day'], [3, '+3 days'], [7, '+1 week']].map((o) => '<button class="seg__btn' + (s.dev.offset === o[0] ? ' is-on' : '') + '" data-act="timeTravel" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div></div>' +
+        '<div class="inrow" style="flex-wrap:wrap"><button class="btn btn--sm btn--tinted" data-act="demoProgress">' + icon('sparkle', 'ic-sm') + 'Fill in two weeks</button><button class="btn btn--sm btn--danger" data-act="resetAsk">Start over</button></div>') + '</div></div>' +
+      '<p class="fn">Spotter prototype. General fitness and healthy-eating guidance only; it doesn’t replace advice from your GP. Machine photos, notifications and a real coach on call come with the full app.</p>';
+    App.sheet('Profile', body);
+  }
+  function installSheet() {
+    App.sheet('Add to Home Screen', '<p class="lead">Spotter works best as an app on your iPhone: full screen, offline, and your iPhone keeps your progress safe.</p>' +
+      '<div class="card"><ol class="steps"><li>Open this page in Safari</li><li>Tap the Share button, the square with the arrow</li><li>Tap “Add to Home Screen”</li><li>Tap Add</li></ol></div>' +
+      '<p class="fn">Safari can clear data for sites you haven’t opened in a while. Once Spotter is on your Home Screen, that doesn’t happen.</p>', { foot: btn('Done, hide this', 'dismissInstall', null, 'btn--block btn--tinted') });
+  }
+
+  // ── Celebrations, one at a time ───────────────────────────────────────────
+  function celebrate() {
+    if (!App.Q.length || App.topLayer() || App.$('.restbar') || App.$('.search')) return;
+    const it = App.Q.shift(); let html = '';
+    if (it.t === 'award') {
+      const a = D.AWARDS.find((x) => x.id === it.id); if (!a) return celebrate();
+      html = '<div class="dialog"><div class="medal-wrap">' + App.medal(a.icon, a.metal, 124) + '</div><div class="eyebrow">New award</div><h2 class="dialog__title">' + esc(a.name) + '</h2><p class="dialog__text">' + esc(a.desc) + '</p>' + btn('Nice', 'closeLayer') + '</div>';
+    } else if (it.t === 'reward') {
+      html = '<div class="dialog"><div class="medal-wrap">' + App.medal('gift', 'gold', 124) + '</div><div class="eyebrow">Week ' + it.week + ' reward</div><h2 class="dialog__title">' + esc(it.text) + '</h2><p class="dialog__text">You earned it. Show this to whoever set it, and claim it.</p>' + btn('Claim it', 'closeLayer') + '</div>';
+    } else return celebrate();
+    const layer = App.openLayer(html, { dialog: true });
+    App.sound('award'); App.haptic('success');
+    setTimeout(() => { const m = layer.querySelector('.medal-wrap'); if (m && layer.isConnected) { const r = m.getBoundingClientRect(); App.shimmer(r.left + r.width / 2, r.top + r.height / 2, 38); } }, 650);
+  }
+
+  // ── After-render touches: rings and bars animate from where they were ────
+  const ringMem = {};
+  function animateRings() {
+    requestAnimationFrame(() => {
+      App.$$('.rings__bar[data-to]').forEach((c) => {
+        const key = c.getAttribute('class') + c.getAttribute('r');
+        if (ringMem[key] != null && !c.closest('.layer')) { c.style.transition = 'none'; c.style.strokeDashoffset = ringMem[key]; c.getBoundingClientRect(); c.style.transition = ''; }
+        requestAnimationFrame(() => { c.style.strokeDashoffset = c.dataset.to; if (!c.closest('.layer') && !c.closest('.hero-rings')) ringMem[key] = c.dataset.to; });
+      });
+    });
+  }
+  function animateBars() { requestAnimationFrame(() => requestAnimationFrame(() => App.$$('[data-w]').forEach((b) => { b.style.width = b.dataset.w + '%'; }))); }
+
+  App.Views = {
+    shell, coachGlyph, discHtml, refreshCoach, setTyping, refreshBadge, animateRings, animateBars,
+    previewSheet, sessionOptions, menuScanning, placeMenu, weekSheet, goalSheet, rewardsSheet, progressSheet, awardsSheet, awardInfo,
+    librarySheet, exerciseSheet, gymSheet, packSheet, menuSheet, cuisinePickSheet, dinnersSheet, mealSheet, momentSheet,
+    profileSheet, installSheet, coachSheet, celebrate, openSearch, closeSearch, renderSearch, isSearchOpen: () => !!searchEl,
+  };
 })();
