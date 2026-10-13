@@ -19,7 +19,7 @@
       asthma: null, reliever: null, actionPlan: null,
       gym: null, gymId: '', gymQ: '', here: null, adding: false, newGym: { name: '', chain: '' },
       equipment: '', perWeek: 2, days: [], time: '', mins: 45,
-      cuisines: [], derailers: [], start: 'now',
+      cuisines: [], derailers: [], start: 'now', keepProgram: false, program: null,
     };
   }
   function dirGym(id) { const e = DB.GYMS.find((g) => g.id === id || g.legacy === id); return e ? E().gymFromDirectory(e) : null; }
@@ -71,6 +71,12 @@
     { id: 'experience', q: (p) => 'Have you trained in a gym before, ' + esc(firstName(p)) + '?', why: () => 'No wrong answers. It decides how much I explain, how hard we start and how many days you can pick.',
       valid: (p) => !!p.experience,
       body: (p) => list(D.EXPERIENCE.map((e) => opt('exp', e.id, e.label, e.sub, null, p.experience === e.id))) },
+    { id: 'program', when: (p) => !!p.program, q: (p) => 'Keep your ' + esc(p.program.source || 'own') + ' program?',
+      why: (p) => p.program.count ? p.program.count + ' sessions came across, with every set and personal record. Keep running your program, or let me build a new one around your gym.' : 'Keep running your program, or let me build a new one around your gym.',
+      valid: () => true,
+      body: (p) => list([opt('keep', 'yes', 'Keep my program', p.program.sessions.map((s) => s.name).join(' · ') + '. Next up: ' + (p.program.sessions.find((s) => s.key === p.program.next) || p.program.sessions[0]).name, ['list', 'bg-accent'], p.keepProgram),
+        opt('keep', 'no', 'Build me a new one', 'Your history still comes across, so weights pick up where you left off', ['sparkle', 'bg-blue'], !p.keepProgram)], true) +
+        (p.keepProgram ? '<div class="group group--tiles" style="margin-top:12px">' + p.program.sessions.map((s) => '<div class="cell"><span class="cell__tile bg-ink"><b class="tile-ini">' + esc(s.tag) + '</b></span><span class="cell__main"><span class="cell__title">' + esc(s.name) + '</span><span class="cell__sub">' + esc(s.items.map((i) => (D.EX[i.id] || {}).name).filter(Boolean).join(', ')) + '</span></span></div>').join('') + '</div>' : '') },
     { id: 'goals', q: (p) => lvl(p) >= 2 ? 'What are you training for?' : 'What are you working towards?',
       why: (p) => lvl(p) >= 2 ? 'This sets the program: how heavy, how many reps and how many days. Pick as many as you like.' : 'Pick as many as you like. It shapes your plan and how I keep you going.',
       valid: (p) => p.goals.length > 0,
@@ -89,7 +95,7 @@
       why: (p) => lvl(p) >= 2 ? 'Pick any that apply. Each one changes how I build your program.' : 'Pick any that apply, or skip. Each one changes how I help.', optional: (p) => !p.worries.length,
       valid: () => true,
       body: (p) => list(D.WORRIES[lvl(p)].map((w) => opt('worry', w.id, w.label, w.id === 'time' ? timeEffect(p) : WORRY_EFFECT[w.id], null, p.worries.includes(w.id)))) },
-    { id: 'focus', when: (p) => lvl(p) >= 2, q: () => 'Anything you want to bring up?', why: () => 'Optional. Each one gets extra sets in the sessions that train it.', optional: (p) => !p.focus.length,
+    { id: 'focus', when: (p) => lvl(p) >= 2 && !p.keepProgram, q: () => 'Anything you want to bring up?', why: () => 'Optional. Each one gets extra sets in the sessions that train it.', optional: (p) => !p.focus.length,
       valid: () => true,
       body: (p) => '<div class="chips">' + D.FOCUS.map((f) => chip('obFocus', f.id, f.label, p.focus.includes(f.id))).join('') + '</div>' +
         (p.focus.length > 3 ? '<div class="callout">' + icon('info') + '<div>Bringing everything up at once means nothing gets much extra. Two or three works best.</div></div>' : '') },
@@ -112,7 +118,7 @@
       why: (p) => kitWhy(p),
       valid: (p) => !!p.gym && p.gym.kit.length > 0,
       body: (p) => kitStep(p) },
-    { id: 'style', when: (p) => p.experience !== 'never', q: (p) => lvl(p) >= 2 ? 'How do you like to train?' : 'What would you like to use?',
+    { id: 'style', when: (p) => p.experience !== 'never' && !p.keepProgram, q: (p) => lvl(p) >= 2 ? 'How do you like to train?' : 'What would you like to use?',
       why: (p) => lvl(p) >= 2 ? 'Your main lifts and the order of everything else follow this. Swaps are always one tap away.' : 'Machines are the quickest to learn. Add dumbbells if you’re comfortable with them.',
       valid: (p) => !!p.equipment,
       body: (p) => {
@@ -338,7 +344,8 @@
       '<div><h1 class="welcome__title">A personal trainer in your pocket.</h1>' +
         '<p class="welcome__sub">Whether it’s your first week or your fifth year, Spotter builds your program around the gym you go to, walks you through every session and sorts out what to eat, even when you eat out.</p></div>' +
       '<div class="welcome__actions"><button class="btn btn--block" data-act="obStart">Get started</button>' +
-        '<button class="btn btn--plain" data-act="obDemoAsk">Try it with example answers</button></div>' +
+        '<button class="btn btn--plain" data-act="obDemoAsk">Try it with example answers</button>' +
+        '<label class="btn btn--plain welcome__import">' + icon('history', 'ic-sm') + 'Coming from Iron Log? Bring your history<input type="file" class="vh" data-change="obImport"></label></div>' +
     '</div>';
   }
 
@@ -406,6 +413,7 @@
       gym: Object.assign({}, p.gym, { kit: p.gym.kit.slice() }), gymId: p.gym.id,
       days: p.days.slice().sort((a, b) => a - b), time: p.time, mins: p.mins, equipment: p.equipment || STYLE_DEFAULT[p.experience] || 'machines',
       cuisines: p.cuisines.slice(), derailers: p.derailers.slice(), start: p.start, created: App.today(),
+      keepProgram: !!(p.keepProgram && p.program), program: p.program || null,
     };
   }
   function fromProfile(pr) {
@@ -417,6 +425,7 @@
       asthma: pr.health ? pr.health.asthma : null, reliever: pr.health ? pr.health.reliever : null, actionPlan: pr.health ? pr.health.actionPlan : null,
       gym: Object.assign({}, g, { kit: g.kit.slice() }), gymId: g.id, perWeek: (pr.days || []).length || 2, days: pr.days || [], time: pr.time, mins: pr.mins || 45, equipment: pr.equipment || 'machines',
       cuisines: pr.cuisines || [], derailers: pr.derailers || [], start: 'now',
+      keepProgram: !!pr.keepProgram, program: pr.program || null,
     });
   }
   // A new experience level changes what's on offer: keep answers that still fit.
@@ -474,7 +483,9 @@
       if (!p.equipment) p.equipment = STYLE_DEFAULT[p.experience] || 'machines';
       App.S.profile = toProfile(p);
       if (prev && prev.health && prev.health.cleared && !App.S.profile.health.flag) App.S.profile.health.cleared = true;
+      if (ob.imp) { App.Import.apply(ob.imp); ob.imp = null; }
       App.S.plan = App.E.buildPlan(App.S.profile);
+      App.checkAwards(true);
       App.S.rewards = App.S.rewards || Object.assign({}, D.DEFAULT_REWARDS);
       App.saveNow();
       ob.active = true; ob.phase = 'build'; App.render(); window.scrollTo(0, 0);
@@ -488,7 +499,25 @@
       else if (k === 'time') p.time = v;
       else if (k === 'equip') p.equipment = v;
       else if (k === 'start') p.start = v;
+      else if (k === 'keep') p.keepProgram = v === 'yes';
       pickTick(); rerender();
+    },
+    // An Iron Log backup: history in, and the questions it already answers filled in.
+    obImport(el) {
+      const f = el.files && el.files[0]; if (!f) return;
+      App.Import.readFile(f).then((imp) => {
+        el.value = '';
+        const pr = App.S.profile; const p = pr ? fromProfile(pr) : blank();
+        Object.assign(p, { program: imp.program, keepProgram: true, perWeek: imp.days.length, days: imp.days.slice() });
+        if (!p.experience || p.experience === 'never' || p.experience === 'little') p.experience = 'lifter';
+        if (!p.goals.length) p.goals = ['muscle', 'strong'];
+        if (!p.mins || p.mins < 60) p.mins = 60;
+        ob.imp = imp; ob.p = p; ob.editing = !!pr; ob.active = true; ob.phase = 'steps'; ob.dir = 1;
+        ob.step = pr ? Math.max(0, visibleSteps(p).findIndex((x) => x.id === 'program')) : 0;
+        App.closeLayer(true); App.render(); window.scrollTo(0, 0);
+        App.sound('set'); App.haptic('success');
+        App.toast(imp.count + ' sessions ready to bring over', 'check');
+      }).catch(() => { el.value = ''; App.toast('That file didn’t look like an Iron Log backup', 'alert'); });
     },
     obFocus(el) { toggle(ob.p.focus, el.dataset.v); pickTick(); rerender(); },
     obFeel(el) { const p = ob.p; const v = el.dataset.v; if (!p.feel.includes(v) && p.feel.length >= 3) { App.toast('Up to three. Untick one first.'); return; } toggle(p.feel, v); pickTick(); rerender(); },

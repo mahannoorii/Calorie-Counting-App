@@ -100,6 +100,7 @@
     ul: { name: 'Upper and lower', sessions: ['up1', 'lo1', 'up2', 'lo2'] },
     ulppl: { name: 'Upper, lower, push, pull, legs', sessions: ['up1', 'lo1', 'push', 'pull', 'legs'] },
     ppl: { name: 'Push, pull, legs', sessions: ['push', 'pull', 'legs', 'push', 'pull', 'legs'] },
+    own: { name: 'Your own program', sessions: [] },
   };
   function splitFor(n, lvl) { return n <= 2 ? 'fb2' : n === 3 ? (lvl >= 2 ? 'fb3' : 'fb2') : n === 4 ? 'ul' : n === 5 ? 'ulppl' : 'ppl'; }
   // When a pattern isn't possible at your gym, the closest thing that is.
@@ -215,8 +216,16 @@
     const ctx = { lvl, style, kit: k, count: {}, prev, strong: goals.includes('strong'), muscle: goals.includes('muscle'), rotate: lvl >= 2 && worries.includes('bored') };
     const names = SPLITS[splitId].sessions.map((tk) => TPL[tk].name);
     const focusPats = new Set(lvl >= 2 ? (p.focus || []).reduce((a, f) => a.concat(FOCUS_PATS[f] || []), []) : []);
-    const sessions = {}; const order = []; const tags = {}; const seenName = {};
-    SPLITS[splitId].sessions.forEach((tk) => {
+    const sessions = {}; let order = []; const tags = {}; const seenName = {};
+    // your own program (brought over from another app) is kept as it is
+    const own = !!(p.keepProgram && p.program && p.program.sessions && p.program.sessions.length);
+    if (own) {
+      p.program.sessions.forEach((s) => { sessions[s.key] = Object.assign({}, s, { ex: s.items.map((i) => i.id), items: s.items.map((i) => Object.assign({}, i)) }); order.push(s.key); });
+      // pick up after the last one you logged
+      const lastOwn = S().log.slice().reverse().find((l) => sessions[l.key]);
+      const next = lastOwn ? order[(order.indexOf(lastOwn.key) + 1) % order.length] : p.program.next;
+      const i = order.indexOf(next); if (i > 0) order = order.slice(i).concat(order.slice(0, i));
+    } else SPLITS[splitId].sessions.forEach((tk) => {
       const tpl = TPL[tk];
       tags[tpl.tag] = (tags[tpl.tag] || 0) + 1;
       const key = tpl.area === 'full' ? tpl.tag : tpl.tag + tags[tpl.tag];
@@ -246,8 +255,8 @@
     const weeks = Math.max(1, Math.ceil((diffDays(weekStart(start), end) + 1) / 7));
     const plan = {
       v: 3, created: t, start, end, weeks, days, mins: p.mins, time: p.time, gymId: g.id, sessions, order, slots,
-      split: splitId, level: lvl, style, superset, rotate: ctx.rotate, newbie: lvl <= 1,
-      deload: lvl >= 3 || (lvl >= 2 && (worries.includes('plateau') || worries.includes('recovery'))),
+      split: own ? 'own' : splitId, level: lvl, style, superset: own ? false : superset, rotate: own ? false : ctx.rotate, newbie: lvl <= 1, own,
+      deload: !own && (lvl >= 3 || (lvl >= 2 && (worries.includes('plateau') || worries.includes('recovery')))),
       warmup: warmupFor(p, k, lvl), finisher: finisherFor(p, k),
       event: ev || (p.event && p.event.date ? p.event : null),
     };
@@ -270,11 +279,17 @@
   };
   function reasons(p, plan, g, k) {
     const R = []; const w = p.worries || []; const lvl = plan.level;
-    const sl = SPLIT_LINE[plan.split](plan.days.length);
-    R.push(['calendar', 'bg-accent', sl[0], sl[1] + (lvl >= 2 && plan.days.length >= 4 ? ' Picked because you know your way around.' : '')]);
+    if (plan.own) {
+      const pr = p.program; const n = plan.order.length;
+      R.push(['calendar', 'bg-accent', 'Your own program, carried over', 'The ' + n + ' sessions you’ve been running' + (pr.source ? ' in ' + pr.source : '') + ', starting with ' + plan.sessions[plan.order[0]].name + ', the one after your last session.']);
+      if (pr.count) R.push(['history', 'bg-blue', pr.count + ' sessions of history', 'Weights, reps and personal records since ' + fmtDate(pr.first, 'dm') + ' ' + pr.first.slice(0, 4) + '. Every suggestion starts from your last session.']);
+    } else {
+      const sl = SPLIT_LINE[plan.split](plan.days.length);
+      R.push(['calendar', 'bg-accent', sl[0], sl[1] + (lvl >= 2 && plan.days.length >= 4 ? ' Picked because you know your way around.' : '')]);
+    }
     const possible = Object.keys(D.EX).filter((id) => canDo(id, k)).length;
     R.push(['pin', 'bg-purple', 'Built for ' + g.name, 'Only equipment ' + (g.custom ? 'you told me is there' : 'this gym has') + '. ' + possible + ' exercises are possible here, so there’s always a swap.']);
-    R.push(['dumbbell', 'bg-blue'].concat(STYLE_LINE[plan.style]));
+    if (!plan.own) R.push(['dumbbell', 'bg-blue'].concat(STYLE_LINE[plan.style]));
     if (plan.superset) R.push(['bolt', 'bg-gold', 'Supersets to save time', 'Pairs of exercises back to back, then rest, so ' + plan.mins + ' minutes covers a full session.']);
     if (plan.deload) R.push(['trend', 'bg-green', 'A lighter week every fourth week', w.includes('plateau') ? 'You said progress has stalled. Planned lighter weeks let you recover, then push past it.' : 'You recover, then come back stronger. It keeps the weights moving.']);
     if (plan.rotate) R.push(['shuffle', 'bg-teal', 'New exercises every four weeks', 'Same muscles, fresh moves, so it never gets stale.']);

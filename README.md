@@ -132,6 +132,10 @@ worked out from the sessions they've logged.
 
 - **Try it with example answers** on the welcome screen: as someone new to the gym, or as an
   experienced lifter.
+- **Coming from Iron Log?** On the welcome screen (or *Profile → Your data*), pick an Iron Log
+  backup file. Every logged session comes across with its weights, reps and personal
+  records, and you can keep running your own program: it carries on from the session after
+  your last one.
 - In *Profile → Prototype tools*:
   - **Fill in two weeks** pretends the plan started two weeks ago.
   - **Pretend today is** jumps ahead a few days so you can see how the plan and the coach react.
@@ -172,6 +176,7 @@ spotter/
   js/onboarding.js       Onboarding, the gym finder and map, the equipment check, the reveal
   js/views.js            The four tabs, search and the sheets
   js/session.js          The guided gym session, supersets and record celebrations
+  js/import.js           Bringing history and a program over from Iron Log
   js/app.js              Boot, migration, navigation, awards and actions
   manifest.webmanifest   Home Screen app details
   service-worker.js      Offline support (bump CACHE_VERSION after changes)

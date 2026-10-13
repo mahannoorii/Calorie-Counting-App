@@ -7,6 +7,7 @@
   const { today, addDays, weekStart, rel, fmtDate } = App;
 
   App.S = migrate(App.load());
+  App.Import.register(App.S.customEx);
   backfillRecords();
   App.tab = 'today';
   App.Q = [];
