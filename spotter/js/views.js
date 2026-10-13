@@ -29,8 +29,9 @@
   function discHtml(id, title, panel, open, tileSpec) { return disc(id, cell({ act: 'toggleDisc', v: id, tile: tileSpec, title: esc(title) }), panel, open); }
   function btn(label, act, v, cls) { return '<button class="btn ' + (cls || '') + '" data-act="' + act + '"' + (v != null ? ' data-v="' + esc(v) + '"' : '') + '>' + label + '</button>'; }
   function clock(ms) { return new Date(ms).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, ' ').toLowerCase(); }
+  function listJoin(a) { return a.length <= 1 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1]; }
   function firstName() { const p = S().profile; return p && p.name ? p.name.split(' ')[0] : ''; }
-  function coachGlyph() { return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="37 50.3" transform="rotate(-90 12 12)"/><circle cx="12" cy="12" r="3.3" fill="#fff"/></svg>'; }
+  function coachGlyph() { return App.mark(true); }
   const avatarCoach = (lg) => '<span class="coach-avatar' + (lg ? ' coach-avatar--lg' : '') + '">' + coachGlyph() + '</span>';
   function curWeekNo() { const plan = S().plan; return App.clamp(Math.floor(diffDays(weekStart(plan.start), today()) / 7) + 1, 1, plan.weeks); }
   function cuisineName(id) { return ((D.MENUS[id] || D.CUISINES.find((c) => c.id === id)) || {}).name || ''; }
@@ -130,15 +131,26 @@
   }
   function repliesHtml(m) {
     if (!m || !m.replies || !m.replies.length || App.Coach.isBusy()) return '';
-    return '<div class="replies">' + m.replies.map((r, i) => '<button class="reply" data-act="coachReply" data-v="' + m.id + '|' + i + '">' + esc(r.label) + '</button>').join('') + '</div>';
+    return '<div class="replies">' + m.replies.map((r, i) => replyBtn(m, r, i)).join('') + '</div>';
+  }
+  // The week is a barbell: a plate goes on the left for each session, on the right for each
+  // good food day. Only plates added since you last looked slide on.
+  const barMem = {};
+  function weekBar(w, where) {
+    const key = where + w.wk; const from = barMem[key] || { t: 0, e: 0 };
+    barMem[key] = { t: w.train, e: w.eat };
+    return App.bar({ train: w.train, trainMax: w.trainMax, eat: w.eat, eatMax: w.eatMax, from });
+  }
+  function weekLegend(w) {
+    const mid = w.perfect ? 'Perfect week' : w.train >= w.trainMax ? 'Training done' : (w.trainMax - w.train) + ' to go';
+    return '<div class="legend legend--bar"><div><div class="legend__label l-train">Train</div><div class="legend__val">' + w.train + '<small>/' + w.trainMax + '</small></div></div>' +
+      '<div class="legend__mid' + (w.perfect ? ' is-perfect' : '') + '">' + (w.perfect ? icon('lock', 'ic-sm') : '') + esc(mid) + '</div>' +
+      '<div class="legend__right"><div class="legend__label l-eat">Eat well</div><div class="legend__val">' + App.fmtKg(w.eat) + '<small>/' + w.eatMax + '</small></div></div></div>';
   }
   function weekCard() {
     const w = E.week();
     return '<button class="card card--tap weekcard" data-act="openWeek" aria-label="This week: ' + w.train + ' of ' + w.trainMax + ' sessions, ' + App.fmtKg(w.eat) + ' of ' + w.eatMax + ' good food days">' +
-      App.rings([{ pct: w.trainMax ? w.train / w.trainMax : 0, cls: 'r-train' }, { pct: w.eat / w.eatMax, cls: 'r-eat' }], 104, 14) +
-      '<div class="legend"><div><div class="legend__label l-train">Train</div><div class="legend__val">' + w.train + '<small>/' + w.trainMax + ' sessions</small></div></div>' +
-      '<div><div class="legend__label l-eat">Eat well</div><div class="legend__val">' + App.fmtKg(w.eat) + '<small>/' + w.eatMax + ' days</small></div></div></div>' +
-      icon('right', 'cell__chev weekcard__chev') + '</button>';
+      '<div class="weekcard__bar">' + weekBar(w, 'card') + '</div>' + weekLegend(w) + '</button>';
   }
   function goalCell() {
     const plan = S().plan; const ev = plan.event;
@@ -168,12 +180,13 @@
   }
   function slotDot(sl, st) {
     st = st || slotState(sl);
-    return '<span class="slotdot' + (st === 'done' ? ' is-done' : st === 'today' ? ' is-next' : st === 'skip' ? ' is-skip' : '') + '">' + (st === 'done' ? icon('check') : sl.key) + '</span>';
+    const tag = E.sessionTag(sl.key);
+    return '<span class="slotdot' + (tag.length > 1 ? ' slotdot--2' : '') + (st === 'done' ? ' is-done' : st === 'today' ? ' is-next' : st === 'skip' ? ' is-skip' : '') + '">' + (st === 'done' ? icon('check') : esc(tag)) + '</span>';
   }
   const STATE_WORD = { done: 'Done', today: 'Today', missed: 'Missed', skip: 'Skipped', later: '' };
   function trainView() {
     const s = S(); const plan = s.plan; const t = today(); const wk = weekStart(t);
-    let h = header('Train', E.gymName(plan.gymId)) + '<div class="page">';
+    let h = header('Train', E.gymName()) + '<div class="page">';
     const week = plan.slots.filter((sl) => { const d = E.slotDate(sl); return d >= wk && d <= addDays(wk, 6); }).sort((a, b) => (E.slotDate(a) < E.slotDate(b) ? -1 : 1));
     const inner = week.length
       ? group(week.map((sl) => { const st = slotState(sl); return cell({ act: 'previewSession', v: sl.id, lead: slotDot(sl, st), title: esc(E.sessionName(sl)), sub: esc(DOW_LONG[App.dow(E.slotDate(sl))] + ' · ' + plan.sessions[sl.key].title), value: STATE_WORD[st] }); }), true)
@@ -198,11 +211,12 @@
       cell({ act: 'openProgress', tile: ['check', 'bg-accent'], title: 'Sessions', value: tot.done + ' of ' + tot.total }),
       cell({ act: 'streakInfo', tile: ['flame', 'bg-red'], title: 'Weeks on target', value: streak + ' in a row' }),
       best ? cell({ act: 'openExercise', v: best.id, tile: ['trend', 'bg-green'], title: esc(D.EX[best.id].name), sub: 'Your biggest jump so far', value: '<span class="delta">+' + App.fmtKg(best.d) + ' kg</span>' }) : '',
+      cell({ act: 'openProgress', tile: ['trophy', 'bg-gold'], title: 'Personal records', value: String(E.prCount()) }),
       cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: earned + ' of ' + D.AWARDS.length }),
     ], true));
     h += sec('More', '', group([
-      cell({ act: 'openLibrary', tile: ['list', 'bg-blue'], title: 'Exercise guide', sub: 'How to set up and do every move' }),
-      cell({ act: 'openGym', tile: ['pin', 'bg-purple'], title: 'Your gym', sub: esc(E.gymName(plan.gymId)) }),
+      cell({ act: 'openLibrary', tile: ['search', 'bg-blue'], title: 'Exercises', sub: Object.keys(D.EX).length + ' moves to search, with how to do each one' }),
+      cell({ act: 'openGym', tile: ['pin', 'bg-purple'], title: 'Your gym', sub: esc(E.gymName()) + ' · equipment' }),
       cell({ act: 'openPack', tile: ['bag', 'bg-teal'], title: 'Pack your bag', sub: 'What to bring each session' }),
     ], true));
     return h + '</div>';
@@ -271,6 +285,7 @@
       const inst = shownMsgs.has(m.id) || nowMs - m.at > 5000 ? ' is-instant' : '';
       shownMsgs.add(m.id);
       if (m.from === 'note') h += '<div class="note' + inst + '">' + icon('check') + esc(m.text) + '</div>';
+      else if (m.from === 'me' && m.img) h += '<div class="bubble bubble--me bubble--img' + inst + '"><img src="' + m.img + '" alt="' + esc(m.text || 'Photo') + '"></div>';
       else if (m.from === 'me') h += '<div class="bubble bubble--me' + inst + '">' + esc(m.text) + '</div>';
       else { h += '<div class="bubble bubble--coach' + (m.urgent ? ' bubble--urgent' : '') + inst + '">' + esc(m.text) + '</div>'; if (m.card) h += msgCard(m.card, inst); }
     });
@@ -285,11 +300,13 @@
         '<ul class="msgcard__list">' + exs.map((e, i) => '<li><span class="n">' + (i + 1) + '</span>' + esc(D.EX[e.id].name) + '</li>').join('') + '</ul>' + btn('Preview', 'previewSession', sl.id, 'btn--sm btn--tinted') + '</div>';
     }
     if (c.type === 'menu') {
-      const M = D.MENUS[c.cuisine]; if (!M) return '';
       const scanned = placeMenu(c.place);
+      const M = D.MENUS[c.cuisine] || (scanned ? { name: '', items: [] } : null); if (!M) return '';
       const picks = scanned ? scanned.picks : M.items.filter((it) => it.t === 'pick').slice(0, 3);
-      return '<div class="msgcard' + inst + '"><div><div class="msgcard__eyebrow">' + esc(M.name) + (scanned ? ' · from their menu' : ' · your order') + '</div><div class="msgcard__title">' + esc(c.place || M.name) + '</div></div>' +
-        '<ul class="msgcard__list">' + picks.map((it, i) => '<li><span class="n">' + (i + 1) + '</span>' + esc(it.n) + '</li>').join('') + '</ul>' + btn('Full menu', 'openMenu', c.place + '|' + c.cuisine, 'btn--sm btn--tinted') + '</div>';
+      return '<div class="msgcard' + inst + '"><div><div class="msgcard__eyebrow">' + esc(M.name ? M.name + (scanned ? ' · from their menu' : ' · your order') : 'From their menu') + '</div><div class="msgcard__title">' + esc(c.place || M.name) + '</div></div>' +
+        '<ul class="msgcard__list">' + picks.map((it, i) => '<li><span class="n">' + (i + 1) + '</span>' + esc(it.n) + '</li>').join('') + '</ul>' +
+        (picks[0] && (modsList(picks[0]).length || picks[0].tip) ? '<div class="msgcard__ask">' + icon('sparkle', 'ic-sm') + '<span>' + esc(modsList(picks[0]).length ? 'Ask for: ' + modsList(picks[0]).slice(0, 2).join(', ').toLowerCase() : picks[0].tip) + '</span></div>' : '') +
+        btn('Full menu', 'openMenu', c.place + '|' + c.cuisine, 'btn--sm btn--tinted') + '</div>';
     }
     if (c.type === 'dinners') {
       return '<div class="msgcard' + inst + '"><div><div class="msgcard__eyebrow">This week</div><div class="msgcard__title">Your dinners</div></div><ul class="msgcard__list">' +
@@ -307,13 +324,20 @@
   function dockRepliesHtml(where) {
     if (App.Coach.isBusy() || coachTyping) return '';
     const m = App.Coach.latest();
-    if (m && m.replies && m.replies.length) return '<div class="replies">' + m.replies.map((r, i) => '<button class="reply" data-act="coachReply" data-v="' + m.id + '|' + i + '">' + esc(r.label) + '</button>').join('') + '</div>';
+    if (m && m.replies && m.replies.length) return '<div class="replies">' + m.replies.map((r, i) => replyBtn(m, r, i)).join('') + '</div>';
     return '<div class="replies replies--topics">' + topics(where).map(([k, label]) => '<button class="reply" data-act="coachTopic" data-v="' + k + '" data-label="' + esc(label) + '">' + esc(label) + '</button>').join('') + '</div>';
   }
+  // A reply chip; a photo reply opens the camera or photo library.
+  function replyBtn(m, r, i) {
+    if (r.photo) return '<label class="reply reply--photo">' + icon('camera', 'ic-sm') + esc(r.label) + '<input type="file" accept="image/*" class="vh" data-change="chatPhoto" data-v="' + esc(r.data || '') + '"></label>';
+    return '<button class="reply" data-act="coachReply" data-v="' + m.id + '|' + i + '">' + esc(r.label) + '</button>';
+  }
+  function camHtml() { return App.Coach.aiReady() ? '<label class="composer__cam" aria-label="Send a photo of a menu">' + icon('camera') + '<input type="file" accept="image/*" class="vh" data-change="chatPhoto"></label>' : ''; }
   function dockHtml(where) {
     return '<div data-coach-replies="' + where + '">' + dockRepliesHtml(where) + '</div>' +
-      '<div class="composer" data-composer><label class="vh" for="coachIn-' + where + '">Message your coach</label><input id="coachIn-' + where + '" data-coach-input placeholder="Message your coach" autocomplete="off" enterkeyhint="send" data-enter="coachSend"><button class="send" data-act="coachSend" aria-label="Send">' + icon('send') + '</button></div>';
+      '<div class="composer" data-composer><span data-cam>' + camHtml() + '</span><label class="vh" for="coachIn-' + where + '">Message your coach</label><input id="coachIn-' + where + '" data-coach-input placeholder="Message your coach" autocomplete="off" enterkeyhint="send" data-enter="coachSend"><button class="send" data-act="coachSend" aria-label="Send">' + icon('send') + '</button></div>';
   }
+  function refreshCam() { App.$$('[data-cam]').forEach((el) => { el.innerHTML = camHtml(); }); }
   // Coach updates land in place: the thread, the reply chips, Today's card and the badge.
   function refreshCoach() {
     App.$$('[data-coach-thread]').forEach((el) => { el.innerHTML = threadHtml(); });
@@ -372,10 +396,11 @@
   function renderSearch(q) { const b = App.$('[data-search-body]'); if (b) b.innerHTML = searchBody(q); }
 
   // ── Sessions ──────────────────────────────────────────────────────────────
+  function repsText(ex, reps) { reps = reps || ex.reps; return reps ? reps[0] + '–' + reps[1] + (ex.unit === 'sec' ? ' sec' : ex.perSide ? ' each side' : ' reps') : ''; }
+  function ssTag(e) { return e.pair ? '<span class="sstag">' + 'ABCDEFG'.charAt(Number(e.pair.slice(1)) - 1) + (e.pairRole === 'a' ? '1' : '2') + '</span>' : ''; }
   function exRow(e, slotId) {
-    const ex = D.EX[e.id]; const sg = E.suggest(e.id, slotId);
-    const rng = ex.reps ? ex.reps[0] + '–' + ex.reps[1] + (ex.unit === 'sec' ? ' sec' : ex.perSide ? ' each side' : ' reps') : '';
-    return cell({ act: 'openExercise', v: e.id, art: ex.art, title: esc(ex.name), sub: e.sets + ' sets · ' + rng, value: esc(sg.mode === 'find' ? 'Find it' : sg.title) });
+    const ex = D.EX[e.id]; const sg = E.suggest(e.id, slotId, e);
+    return cell({ act: 'openExercise', v: e.id, art: ex.art, title: ssTag(e) + esc(ex.name), sub: e.sets + ' sets · ' + repsText(ex, e.reps) + (e.pairRole === 'a' ? ' · then straight to the next' : ''), value: esc(sg.mode === 'find' ? 'Find it' : sg.title) });
   }
   function previewSheet(id) {
     const sl = E.slotById(id); if (!sl) return;
@@ -387,7 +412,7 @@
     if (done && log) body += '<div class="callout callout--green">' + icon('check') + '<div><b>Done ' + esc(App.relLow(log.date)) + '.</b> ' + log.mins + ' min · ' + App.sum(log.ex.map((e) => e.sets.length)) + ' sets · ' + Math.round(App.sum(log.ex.map((e) => App.sum(e.sets.map((x) => (x.w || 0) * x.r))))).toLocaleString('en-AU') + ' kg lifted</div></div>';
     if (S().trims[id] || S().eases[id]) body += '<div class="callout">' + icon('sliders') + '<div>' + (S().trims[id] ? 'Cut to ' + S().trims[id] + ' exercises, two sets each. ' : '') + (S().eases[id] ? 'Weights eased one step.' : '') + '</div></div>';
     body += '<div class="group group--tiles">' + cardio(plan.warmup, 'Warm-up') + exs.map((e) => exRow(e, id)).join('') + (plan.finisher ? cardio(plan.finisher, 'Finisher') : '') + '</div>';
-    body += '<p class="fn"><b>' + esc(phase.name) + '.</b> ' + esc(phase.note) + ' Tap any exercise to see how it’s done.</p>';
+    body += '<p class="fn"><b>' + esc(phase.name) + '.</b> ' + esc(phase.note) + (exs.some((e) => e.pair) ? ' Exercises marked A1 and A2 are a superset: one set of each, back to back, then rest.' : '') + ' Tap any exercise to see how it’s done.</p>';
     const canStart = !done && !S().active && !E.isSkipped(sl);
     const label = d === today() ? 'Start session' : d < today() ? 'Do it now' : 'Start it now instead';
     App.sheet(esc(E.sessionName(sl)), body, {
@@ -422,10 +447,9 @@
       const foodTag = f ? '<span class="tag ' + (f.s === 'on' ? 'tag--ok' : 'tag--treat') + '">' + FOOD_WORD[f.s] + '</span>' : '';
       return cell({ lead: '<span class="daytag' + (d === t ? ' is-today' : '') + '">' + DOW[i] + '</span>', title: esc(trainTxt), sub: sl ? esc(S().plan.sessions[sl.key].title) : '', trail: foodTag });
     });
-    const body = '<div class="weekcard" style="padding:0">' + App.rings([{ pct: w.trainMax ? w.train / w.trainMax : 0, cls: 'r-train' }, { pct: w.eat / w.eatMax, cls: 'r-eat' }], 92, 12) +
-      '<div class="legend"><div><div class="legend__label l-train">Train</div><div class="legend__val">' + w.train + '<small>/' + w.trainMax + '</small></div></div><div><div class="legend__label l-eat">Eat well</div><div class="legend__val">' + App.fmtKg(w.eat) + '<small>/' + w.eatMax + '</small></div></div></div></div>' +
-      group(rows) + '<p class="fn">Close both rings for a perfect week: every planned session, and five good food days. “Partly” counts as half.</p>';
-    App.sheet('This week', body); animateRings();
+    const body = '<div class="weekcard weekcard--sheet"><div class="weekcard__bar">' + weekBar(w, 'sheet') + '</div>' + weekLegend(w) + '</div>' +
+      group(rows) + '<p class="fn">Load the bar: a plate on the left for every planned session, a plate on the right for each of five good food days (“partly” is half a plate). A fully loaded bar locks for a perfect week.</p>';
+    App.sheet('This week', body);
   }
   function goalSheet() {
     const p = S().profile; const plan = S().plan; const ev = plan.event;
@@ -461,8 +485,10 @@
       const unit = ex.unit === 'kg' ? ' kg' : ex.unit === 'sec' ? ' s' : '';
       return cell({ act: 'openExercise', v: id, art: ex.art, title: esc(ex.name), sub: App.fmtKg(v[v.length - 1]) + unit + (d > 0 && !ex.assist ? ' · <span class="delta">+' + App.fmtKg(d) + unit + '</span>' : ''), trail: spark(v) });
     });
-    const body = '<div class="stats"><div class="stat"><div class="stat__v" data-count="' + tot.done + '">0</div><div class="stat__l">Sessions</div></div><div class="stat"><div class="stat__v" data-count="' + mins + '">0</div><div class="stat__l">Minutes</div></div><div class="stat"><div class="stat__v" data-count="' + kg + '">0</div><div class="stat__l">kg lifted</div></div></div>' +
-      group([cell({ act: 'streakInfo', tile: ['flame', 'bg-red'], title: 'Weeks on target', value: E.streakWeeks() + ' in a row' }), cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: Object.keys(s.awards).length + ' of ' + D.AWARDS.length })], true) +
+    const prs = []; s.log.slice().reverse().forEach((l) => (l.prs || []).forEach((r) => { if (prs.length < 8) prs.push({ r, date: l.date }); }));
+    const body = '<div class="stats"><div class="stat"><div class="stat__v" data-count="' + tot.done + '">0</div><div class="stat__l">Sessions</div></div><div class="stat"><div class="stat__v" data-count="' + E.prCount() + '">0</div><div class="stat__l">Records</div></div><div class="stat"><div class="stat__v" data-count="' + kg + '">0</div><div class="stat__l">kg lifted</div></div></div>' +
+      group([cell({ act: 'streakInfo', tile: ['flame', 'bg-red'], title: 'Weeks on target', value: E.streakWeeks() + ' in a row' }), cell({ tile: ['clock', 'bg-teal'], title: 'Time training', value: (mins >= 120 ? Math.round(mins / 6) / 10 + ' h' : mins + ' min') }), cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: Object.keys(s.awards).length + ' of ' + D.AWARDS.length })], true) +
+      '<div class="sec"><div class="sec__label">Latest records</div>' + (prs.length ? group(prs.map((x) => { const ex = D.EX[x.r.id]; const t = E.prText(x.r.id, x.r); return ex ? cell({ act: 'openExercise', v: x.r.id, tile: ['trophy', 'bg-gold'], title: esc(ex.name), sub: esc(t.title + ' · ' + (ex.unit === 'kg' ? App.fmtKg(x.r.w) + ' kg × ' + x.r.r : x.r.r + (ex.unit === 'sec' ? ' s' : ' reps')) + ' · ' + fmtDate(x.date, 'dm')), value: '<span class="delta">' + esc(t.gain.replace(/ on your best$/, '')) + '</span>' }) : ''; }), true) : '<div class="callout">' + icon('trophy') + '<div>Beat your best on any exercise, even by 0.25 kg or one rep, and it shows up here.</div></div>') + '</div>' +
       '<div class="sec"><div class="sec__label">Your lifts</div>' + (lifts.length ? group(lifts, true) : '<div class="callout">' + icon('trend') + '<div>Your lifts show up here after your first session, with a line for each one as it climbs.</div></div>') + '</div>';
     App.sheet('Progress', body);
     App.$$('[data-count]', App.topLayer()).forEach((el) => App.countUp(el, Number(el.dataset.count), 900));
@@ -478,24 +504,58 @@
   }
 
   // ── Exercises and the gym ─────────────────────────────────────────────────
-  function librarySheet() {
-    const plan = S().plan; const gym = E.gymOf(plan.gymId);
-    const inPlan = []; ['A', 'B'].forEach((k) => plan.sessions[k].ex.forEach((base) => { const id = S().swaps[base] || base; if (!inPlan.includes(id)) inPlan.push(id); }));
-    const alts = []; inPlan.forEach((id) => (D.EX[id].alts || []).concat(D.EX[S().swaps[id] ? id : id].alts || []).forEach((a) => { if (D.EX[a] && !inPlan.includes(a) && !alts.includes(a) && gym.kit.includes(a) && D.EX[a].unit !== 'min') alts.push(a); }));
-    const row = (id) => cell({ act: 'openExercise', v: id, art: D.EX[id].art, title: esc(D.EX[id].name), sub: esc(D.EX[id].focus) });
-    const body = '<div class="sec"><div class="sec__label">In your plan</div>' + group(inPlan.map(row), true) + '</div>' +
-      '<div class="sec"><div class="sec__label">Swaps if a machine’s taken</div>' + group(alts.map(row), true) + '</div>' +
-      '<div class="sec"><div class="sec__label">Warm-up</div>' + group(['bike', 'cross_trainer', 'treadmill'].map((id) => cell({ act: 'openExercise', v: id, art: D.EX[id].art, title: esc(D.EX[id].name), sub: 'Any of these works' })), true) + '</div>';
-    App.sheet('Exercise guide', body);
+  const AREAS = [['all', 'All'], ['Legs', 'Legs'], ['Glutes', 'Glutes'], ['Chest', 'Chest'], ['Back', 'Back'], ['Shoulders', 'Shoulders'], ['Arms', 'Arms'], ['Core', 'Core'], ['cardio', 'Cardio']];
+  const lib = { q: '', area: 'all', here: true };
+  const LEVEL_WORD = { 1: 'Beginner friendly', 2: 'Some experience', 3: 'Experienced' };
+  function areaOf(id) { const ex = D.EX[id]; return ex.pat === 'cardio' || ex.pat === 'cond' ? 'cardio' : E.regionOf(id); }
+  function libRow(id, inPlan, k) {
+    const ex = D.EX[id]; const here = E.canDo(id, k);
+    const sub = [ex.focus, inPlan.has(id) ? 'in your plan' : '', ex.lvl > 1 ? LEVEL_WORD[ex.lvl].toLowerCase() : '', here ? '' : 'not at your gym'].filter(Boolean).join(' · ');
+    return cell({ act: 'openExercise', v: id, art: ex.art, title: esc(ex.name), sub: esc(App.cap(sub)), cls: here ? '' : 'cell--dim' });
   }
+  function libResults() {
+    const k = E.kit(); const inPlan = E.planIds();
+    const words = lib.q.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    let ids = Object.keys(D.EX).filter((id) => (lib.area === 'all' || areaOf(id) === lib.area) && (!lib.here || E.canDo(id, k)));
+    if (words.length) {
+      ids = ids.filter((id) => { const ex = D.EX[id]; const hay = (ex.name + ' ' + (ex.aka || []).join(' ') + ' ' + ex.focus + ' ' + (ex.muscles || []).concat(ex.muscles2 || []).map((m) => D.MUSCLES[m]).join(' ') + ' ' + ex.eq.map((t) => D.EQUIP_NAME[t]).join(' ')).toLowerCase(); return words.every((w) => hay.indexOf(w) >= 0); });
+      ids.sort((a, b) => (D.EX[b].name.toLowerCase().indexOf(words[0]) === 0) - (D.EX[a].name.toLowerCase().indexOf(words[0]) === 0) || (inPlan.has(b) - inPlan.has(a)));
+      if (!ids.length) return '<p class="search__empty">' + (lib.here ? 'Nothing at your gym matches. <button class="btn btn--plain btn--sm" data-act="libHere">Search every exercise</button>' : 'No exercise matches that yet.') + '</p>';
+      return group(ids.slice(0, 40).map((id) => libRow(id, inPlan, k)), true);
+    }
+    const planned = ids.filter((id) => inPlan.has(id));
+    let h = planned.length && lib.area === 'all' ? '<div class="sec"><div class="sec__label">In your plan</div>' + group(planned.map((id) => libRow(id, inPlan, k)), true) + '</div>' : '';
+    const areas = lib.area === 'all' ? AREAS.slice(1).map((a) => a[0]) : [lib.area];
+    areas.forEach((a) => {
+      const these = ids.filter((id) => areaOf(id) === a && (lib.area !== 'all' || !inPlan.has(id))).sort((x, y) => D.EX[x].lvl - D.EX[y].lvl || D.EX[x].name.localeCompare(D.EX[y].name));
+      if (these.length) h += '<div class="sec"><div class="sec__label">' + esc(AREAS.find((x) => x[0] === a)[1]) + ' · ' + these.length + '</div>' + group(these.map((id) => libRow(id, inPlan, k)), true) + '</div>';
+    });
+    return h || '<p class="search__empty">Nothing here at your gym yet.</p>';
+  }
+  function libControls() {
+    return '<div class="chips chips--scroll" role="group" aria-label="Body area">' + AREAS.map(([v, l]) => '<button class="chip' + (lib.area === v ? ' is-on' : '') + '" data-act="libArea" data-v="' + v + '" aria-pressed="' + (lib.area === v) + '">' + l + '</button>').join('') + '</div>' +
+      '<div class="group"><div class="cell"><span class="cell__main"><span class="cell__title">Only what’s at ' + esc(E.gymShort()) + '</span></span><button class="switch' + (lib.here ? ' is-on' : '') + '" data-act="libHere" role="switch" aria-checked="' + lib.here + '" aria-label="Only exercises at your gym"></button></div></div>';
+  }
+  function librarySheet() {
+    lib.q = ''; lib.area = 'all'; lib.here = true;
+    const body = '<label class="search__field libsearch">' + icon('search') + '<span class="vh">Search exercises</span><input id="libQ" type="search" placeholder="Search ' + Object.keys(D.EX).length + ' exercises" autocomplete="off" enterkeyhint="search" data-in="libQ"></label>' +
+      '<div data-libctl>' + libControls() + '</div><div data-libres>' + libResults() + '</div>';
+    App.sheet('Exercises', body, { tall: true });
+  }
+  function renderLib(ctl) { const r = App.$('[data-libres]'); if (r) r.innerHTML = libResults(); if (ctl) { const c = App.$('[data-libctl]'); if (c) c.innerHTML = libControls(); } }
   function exerciseSheet(id) {
     const ex = D.EX[id]; if (!ex) return;
     const set = S().exSettings[id] || {};
     const mus = (ex.muscles || []).map((m) => D.MUSCLES[m]).concat((ex.muscles2 || []).map((m) => D.MUSCLES[m].toLowerCase()));
     const past = []; S().log.slice().reverse().forEach((l) => l.ex.forEach((e) => { if (e.id === id && e.sets.length && past.length < 4) past.push({ date: l.date, e }); }));
-    const perf = (e) => ex.unit === 'kg' ? e.sets.map((x) => App.fmtKg(x.w) + '×' + x.r).join(', ') + ' kg' : e.sets.map((x) => x.r).join(', ') + (ex.unit === 'sec' ? ' s' : ' reps');
+    const perf = (e) => ex.unit === 'kg' ? e.sets.map((x) => App.fmtKg(x.w) + '×' + x.r).join(', ') + ' kg' : ex.unit === 'min' ? e.sets.map((x) => x.r).join(', ') + ' min' : e.sets.map((x) => x.r).join(', ') + (ex.unit === 'sec' ? ' s' : ' reps');
+    const here = E.canDo(id); const miss = E.missing(id); const best = E.bestOf(id); const inPlan = E.planIds().has(id);
+    const tags = [LEVEL_WORD[ex.lvl]].concat(ex.eq.length ? ex.eq.map((t) => D.EQUIP_NAME[t]) : ['No equipment']);
     const body = '<div class="photo">' + (set.photo ? '<img src="' + set.photo + '" alt="Your photo of the ' + esc(ex.name) + '">' : art(ex.art)) + '</div>' +
-      '<div class="sheet__lead"><div class="eyebrow">' + esc(ex.focus || '') + '</div><h1 class="sheet__h1">' + esc(ex.name) + '</h1>' + (mus.length ? '<p class="muted" style="font-size:15px">Works your ' + esc(mus.slice(0, 1).join('').toLowerCase()) + (mus.length > 1 ? ', with help from ' + esc(mus.slice(1).join(', ').toLowerCase()) : '') + '.</p>' : '') + '</div>' +
+      '<div class="sheet__lead"><div class="eyebrow">' + esc(ex.focus || '') + '</div><h1 class="sheet__h1">' + esc(ex.name) + '</h1>' + (mus.length ? '<p class="muted" style="font-size:15px">Works your ' + esc(mus.slice(0, 1).join('').toLowerCase()) + (mus.length > 1 ? ', with help from ' + esc(mus.slice(1).join(', ').toLowerCase()) : '') + '.</p>' : '') +
+        '<div class="tags">' + tags.map((t, i) => '<span class="tag' + (i === 0 ? ' tag--pick' : '') + '">' + esc(t) + '</span>').join('') + '</div></div>' +
+      (here ? '' : '<div class="callout">' + icon('pin') + '<div><b>Not at ' + esc(E.gymShort()) + ' yet.</b> It needs ' + esc(listJoin(miss.map((t) => D.EQUIP_NAME[t].toLowerCase()))) + '.<div style="margin-top:8px"><button class="btn btn--sm btn--tinted" data-act="kitHas" data-v="' + esc(miss.join(',') + '|' + id) + '">My gym has ' + (miss.length > 1 ? 'these' : 'it') + '</button></div></div></div>') +
+      (best ? group([cell({ tile: ['trophy', 'bg-gold'], title: 'Your best: ' + esc(best.text), sub: esc(fmtDate(best.date, 'dm')) })]) : '') +
       (set.seat ? '<div class="callout callout--blue">' + icon('sliders') + '<div><b>Your settings:</b> ' + esc(set.seat) + '</div></div>' : '') +
       '<div class="group">' +
         (ex.setup ? disc('ex-setup', cell({ act: 'toggleDisc', v: 'ex-setup', title: 'Set up' }), '<ol class="steps">' + ex.setup.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>', true) : '') +
@@ -504,15 +564,41 @@
         (ex.avoid && ex.avoid.length ? disc('ex-avoid', cell({ act: 'toggleDisc', v: 'ex-avoid', title: 'Avoid' }), '<ul class="dots-list">' + ex.avoid.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>') : '') +
       '</div>' +
       (past.length ? '<div class="sec"><div class="sec__label">Your history</div>' + group(past.map((x) => cell({ title: esc(perf(x.e)), sub: esc(fmtDate(x.date, 'short')) + (x.e.effort ? ' · ' + E.effortWord(x.e.effort) : '') }))) + '</div>' : '');
-    App.sheet(esc(ex.name), body);
+    const foot = !inPlan && here && ex.unit !== 'min' && S().plan ? btn(icon('plus', 'ic-sm') + 'Use it in my plan', 'swapInAsk', id, 'btn--block btn--tinted') : '';
+    App.sheet(esc(ex.name), body, foot ? { foot } : undefined);
+  }
+  // Put an exercise you found into the plan, in place of one that does the same job.
+  function swapInSheet(id) {
+    const ex = D.EX[id]; const plan = S().plan; const seen = new Set(); const rows = [];
+    E.sessionKeys().forEach((key) => E.exercisesFor(key, 1).forEach((e) => {
+      if (seen.has(e.base)) return; seen.add(e.base);
+      const cur = D.EX[e.id]; const same = cur.pat === ex.pat; const near = same ? 2 : E.regionOf(e.id) === E.regionOf(id) ? 1 : 0;
+      rows.push({ near, html: cell({ act: 'swapIn', v: e.base + '|' + id, art: cur.art, title: esc(cur.name), sub: esc(plan.sessions[key].name + (same ? ' · same job' : '')) }) });
+    }));
+    rows.sort((a, b) => b.near - a.near);
+    App.sheet('Use it in my plan', '<div class="sheet__lead"><h1 class="sheet__h1">Swap in the ' + esc(App.lc(ex.name)) + '</h1><p class="lead">Pick what it replaces. Moves that do the same job are first.</p></div>' + group(rows.map((r) => r.html), true));
   }
   function gymSheet() {
-    const plan = S().plan; const g = E.gymOf(plan.gymId);
-    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(g.generic ? 'Any gym' : g.area) + '</div><h1 class="sheet__h1">' + esc(g.generic ? 'Your gym' : g.brand + ' ' + g.branch) + '</h1></div>' +
-      '<div class="callout callout--blue">' + icon('pin') + '<div><b>Mapping coming.</b> Once this gym is mapped in person you’ll see a photo of each machine, where it is on the floor and its exact settings. For now every exercise shows the machine type and how to set it up.</div></div>' +
-      group([cell({ title: 'Machines in your plan', value: String(E.allSlots().length ? new Set(['A', 'B'].flatMap((k) => plan.sessions[k].ex)).size : 0) }), cell({ title: 'Swaps available', value: 'Yes' })]) +
-      group([cell({ act: 'editPlan', title: 'Change gym', cls: 'cell--link', chev: false })]);
+    const g = E.gym(); const k = E.kit();
+    const possible = Object.keys(D.EX).filter((id) => E.canDo(id, k)).length;
+    const src = g.chain === 'home' ? 'Your home setup' : g.custom ? 'Added by you' : 'Equipment from what the club and chain list online, checked ' + fmtDate(g.checked || D.GYMDB.checked, 'dm') + (g.edited ? ', with your changes' : '');
+    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(g.suburb || (g.chain === 'home' ? 'Home' : 'Your gym')) + '</div><h1 class="sheet__h1">' + esc(g.name) + '</h1>' + (g.address ? '<p class="muted" style="font-size:15px">' + esc(g.address) + '</p>' : '') + '</div>' +
+      '<div class="kitsum"><div><div class="kitsum__n">' + g.kit.length + '</div><div class="kitsum__l">types of equipment</div></div><div><div class="kitsum__n">' + possible + '</div><div class="kitsum__l">exercises possible</div></div></div>' +
+      group([cell({ act: 'openKit', tile: ['sliders', 'bg-blue'], title: 'Equipment', sub: esc(src) }), g.url ? '<a class="cell" href="' + esc(g.url) + '" target="_blank" rel="noopener"><span class="cell__tile bg-purple">' + icon('pin') + '</span><span class="cell__main"><span class="cell__title">Club page</span><span class="cell__sub">Hours, address and contact</span></span>' + chev() + '</a>' : ''], true) +
+      '<div class="callout callout--blue">' + icon('camera') + '<div><b>Photos of each machine come next.</b> Add your own from any exercise in a session, and it’s there next time.</div></div>' +
+      group([cell({ act: 'editPlan', v: 'gym', title: 'Change gym', cls: 'cell--link', chev: false })]);
     App.sheet('Your gym', body);
+  }
+  // Edit what's at your gym. Anything in the plan that's no longer possible is swapped.
+  function kitSheet(replace) {
+    const g = E.gym(); const on = new Set(g.kit);
+    const body = '<p class="lead">Tick what’s there. Your plan only uses ticked equipment.</p><div class="group">' + Object.keys(D.EQUIP).map((gk) => {
+      const grp = D.EQUIP[gk]; const items = Object.keys(grp.items);
+      return disc('kitx-' + gk, cell({ act: 'toggleDisc', v: 'kitx-' + gk, title: esc(grp.name), value: items.filter((t) => on.has(t)).length + ' of ' + items.length }),
+        '<div class="chips">' + items.map((t) => '<button class="chip' + (on.has(t) ? ' is-on' : '') + '" data-act="kitToggle" data-v="' + t + '" aria-pressed="' + on.has(t) + '">' + esc(grp.items[t]) + '</button>').join('') + '</div>');
+    }).join('') + '</div>';
+    if (replace) { App.replaceSheet(body); return; }
+    App.sheet('Equipment', body);
   }
   function packSheet() {
     const p = S().profile; const key = 'pack:' + today(); const st = S().seen[key] || {};
@@ -525,16 +611,16 @@
   // ── Food sheets ───────────────────────────────────────────────────────────
   function placeMenu(name) { const p = name && S().places.find((x) => x.name.toLowerCase() === String(name).toLowerCase()); return p && p.menu && p.menu.picks && p.menu.picks.length ? p.menu : null; }
   function menuSheet(name, cu, replace) {
-    const M = D.MENUS[cu]; if (!M) return;
-    const place = name || M.name + ' restaurant';
     const scanned = placeMenu(name);
+    const M = D.MENUS[cu] || (scanned ? { name: '', items: [] } : null); if (!M) return;
+    const place = name || M.name + ' restaurant';
     const picks = scanned ? scanned.picks : M.items.filter((i) => i.t === 'pick').slice(0, 3);
     const ok = scanned ? [] : M.items.filter((i) => i.t === 'ok'); const treat = scanned ? scanned.treats || [] : M.items.filter((i) => i.t === 'treat');
     const rows = (items, tag) => items.map((it) => '<div class="menurow"><span class="menurow__name">' + esc(it.n) + (it.tip ? '<span class="menurow__tip">' + esc(it.tip) + '</span>' : '') + '</span>' + (tag ? '<span class="tag ' + tag[0] + '">' + tag[1] + '</span>' : '') + '</div>').join('');
     const locked = lockedToday(place);
-    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(M.name) + ' · your order' + (locked ? ' · <span class="t-green">locked in</span>' : '') + '</div><h1 class="sheet__h1">' + esc(place) + '</h1></div>' +
-      '<div class="group"><ol class="picks">' + picks.map((it, i) => '<li class="pick"><span class="pick__n">' + (i + 1) + '</span><div><div class="pick__name">' + esc(it.n) + '</div>' + (it.why ? '<div class="pick__why">' + esc(it.why) + '</div>' : '') + (it.tip ? '<div class="pick__tip">' + icon('sparkle') + '<span>' + esc(it.tip) + '</span></div>' : '') + '</div></li>').join('') + '</ol></div>' +
-      (scanned ? '<p class="fn">Scanned from their menu ' + esc(App.relLow(App.iso(new Date(scanned.at)))) + '. Any one of these is a great order.</p>' : '<p class="fn">Any one of these is a great order. I picked them from a typical ' + esc(M.name.toLowerCase()) + ' menu, so if one isn’t on theirs, go for the closest thing.</p>') +
+    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(M.name ? M.name + ' · your order' : 'Your order') + (locked ? ' · <span class="t-green">locked in</span>' : '') + '</div><h1 class="sheet__h1">' + esc(place) + '</h1></div>' +
+      '<div class="group"><ol class="picks">' + picks.map((it, i) => '<li class="pick"><span class="pick__n">' + (i + 1) + '</span><div><div class="pick__name">' + esc(it.n) + '</div>' + (it.why ? '<div class="pick__why">' + esc(it.why) + '</div>' : '') + (it.tip ? '<div class="pick__tip">' + icon('sparkle') + '<span>' + esc(it.tip) + '</span></div>' : '') + modsHtml(it) + '</div></li>').join('') + '</ol></div>' +
+      (scanned ? '<p class="fn">Scanned from their menu ' + esc(App.relLow(App.iso(new Date(scanned.at)))) + '. Any one of these is a great order.</p>' : '<p class="fn">Any one of these is a great order. I picked them from a typical ' + esc(['pub', 'burgers', 'pizza', 'chicken', 'cafe', 'ramen'].includes(cu) ? M.name.toLowerCase() : M.name) + ' menu, so if one isn’t on theirs, go for the closest thing.</p>') +
       '<div data-scan-slot></div>' +
       '<div class="group">' +
         (ok.length ? disc('menu-ok', cell({ act: 'toggleDisc', v: 'menu-ok', title: 'Also a good choice', value: String(ok.length) }), rows(ok, ['tag--ok', 'Good'])) : '') +
@@ -549,6 +635,9 @@
         '<input class="vh" type="file" accept="image/*" capture="environment" data-change="menuPhoto" data-v="' + esc(name + '|' + cu) + '"></label></div>';
     });
   }
+  // "Ask for" tweaks, minus any the tip already says.
+  function modsList(it) { const tip = String(it.tip || '').toLowerCase(); return (it.mods || []).filter((m) => tip.indexOf(m.toLowerCase()) < 0); }
+  function modsHtml(it) { const m = modsList(it); return m.length ? '<div class="pick__mods"><span class="pick__ask">Ask for</span>' + m.map((x) => '<span class="modchip">' + esc(x) + '</span>').join('') + '</div>' : ''; }
   function menuScanning(on) {
     const slot = App.$('[data-scan-slot]', App.topLayer() || document); if (!slot) return;
     if (on) slot.innerHTML = '<div class="callout callout--blue"><span class="spinner" aria-hidden="true"></span><div><b>Reading the menu…</b> Picking the three best orders.</div></div>';
@@ -592,7 +681,9 @@
     const tm = E.timeOf(plan.time);
     const body = '<div class="sheet__lead" style="justify-items:center;text-align:center"><span class="avatar" style="width:76px;height:76px;font-size:32px;margin:0">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</span><h1 class="sheet__h1">' + esc(p.name) + '</h1><p class="muted" style="font-size:15px">' + E.totals().done + ' ' + App.plural(E.totals().done, 'session') + ' · since ' + esc(fmtDate(p.created || plan.created, 'dm')) + '</p></div>' +
       '<div class="sec"><div class="sec__label">Your plan</div>' + group([
-        cell({ title: 'Gym', value: esc(E.gymShort(plan.gymId)) }),
+        cell({ act: 'openGym', title: 'Gym', value: esc(E.gymShort()) }),
+        cell({ title: 'Experience', value: esc((D.EXPERIENCE.find((x) => x.id === p.experience) || {}).label || '') }),
+        cell({ title: 'Program', value: esc(E.SPLITS[plan.split] ? E.SPLITS[plan.split].name : 'Full body') }),
         cell({ title: 'Days', value: esc(plan.days.map((d) => DOW[d]).join(', ')) }),
         cell({ title: 'Time', value: esc(tm.label + ' · ' + plan.mins + ' min') }),
         cell({ title: 'Dates', value: esc(fmtDate(plan.start, 'dm') + ' – ' + fmtDate(plan.end, 'dm')) }),
@@ -623,7 +714,7 @@
 
   // ── Celebrations, one at a time ───────────────────────────────────────────
   function celebrate() {
-    if (!App.Q.length || App.topLayer() || App.$('.restbar') || App.$('.search')) return;
+    if (!App.Q.length || App.topLayer() || App.$('.restbar') || App.$('.search') || App.$('.prpop') || App.ob.active) return;
     const it = App.Q.shift(); let html = '';
     if (it.t === 'award') {
       const a = D.AWARDS.find((x) => x.id === it.id); if (!a) return celebrate();
@@ -636,23 +727,13 @@
     setTimeout(() => { const m = layer.querySelector('.medal-wrap'); if (m && layer.isConnected) { const r = m.getBoundingClientRect(); App.shimmer(r.left + r.width / 2, r.top + r.height / 2, 38); } }, 650);
   }
 
-  // ── After-render touches: rings and bars animate from where they were ────
-  const ringMem = {};
-  function animateRings() {
-    requestAnimationFrame(() => {
-      App.$$('.rings__bar[data-to]').forEach((c) => {
-        const key = c.getAttribute('class') + c.getAttribute('r');
-        if (ringMem[key] != null && !c.closest('.layer')) { c.style.transition = 'none'; c.style.strokeDashoffset = ringMem[key]; c.getBoundingClientRect(); c.style.transition = ''; }
-        requestAnimationFrame(() => { c.style.strokeDashoffset = c.dataset.to; if (!c.closest('.layer') && !c.closest('.hero-rings')) ringMem[key] = c.dataset.to; });
-      });
-    });
-  }
+  // ── After-render touches: progress bars grow in ────────────────────────────
   function animateBars() { requestAnimationFrame(() => requestAnimationFrame(() => App.$$('[data-w]').forEach((b) => { b.style.width = b.dataset.w + '%'; }))); }
 
   App.Views = {
-    shell, coachGlyph, discHtml, refreshCoach, setTyping, refreshBadge, animateRings, animateBars,
+    shell, coachGlyph, discHtml, refreshCoach, refreshCam, setTyping, refreshBadge, animateBars,
     previewSheet, sessionOptions, menuScanning, placeMenu, weekSheet, goalSheet, rewardsSheet, progressSheet, awardsSheet, awardInfo,
-    librarySheet, exerciseSheet, gymSheet, packSheet, menuSheet, cuisinePickSheet, dinnersSheet, mealSheet, momentSheet,
+    librarySheet, renderLib, lib, exerciseSheet, swapInSheet, gymSheet, kitSheet, packSheet, menuSheet, cuisinePickSheet, dinnersSheet, mealSheet, momentSheet,
     profileSheet, installSheet, coachSheet, celebrate, openSearch, closeSearch, renderSearch, isSearchOpen: () => !!searchEl,
   };
 })();

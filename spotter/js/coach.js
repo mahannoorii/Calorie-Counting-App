@@ -16,7 +16,7 @@
   function initAI() {
     try {
       if (!window.claude || typeof window.claude.use !== 'function') return;
-      window.claude.use('sample').then((fn) => { if (fn) aiSample = fn; }).catch(() => {});
+      window.claude.use('sample').then((fn) => { if (fn) { aiSample = fn; if (App.Views && App.Views.refreshCam) App.Views.refreshCam(); } }).catch(() => {});
     } catch (e) {}
   }
   function aiReady() { return !!aiSample && !aiOff; }
@@ -32,7 +32,7 @@
       asthma: !!(p.health && p.health.asthma),
     };
   }
-  const lower = (x) => x.charAt(0).toLowerCase() + x.slice(1);
+  const lower = (x) => App.lc(x);
   function listJoin(a) { return a.length <= 1 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1]; }
   function exNames(slot) { return E.exercisesFor(slot.key, slot.week, slot.id).map((e) => lower(D.EX[e.id].name)); }
   function dayWord(d) { const r = rel(d); return r === 'Today' || r === 'Tomorrow' ? r.toLowerCase() : DOW_LONG[dow(d)]; }
@@ -101,7 +101,10 @@
 
     // Weekend
     friday: () => ({ text: 'Anything on this weekend I should plan around?', replies: [r('Eating out', 'eat_where'), r('Family event', 'event_day'), r('Takeaway night', 'eat_where'), r('A quiet one', 'quiet')], mark: 'weekend' }),
-    eat_where: () => ({ text: 'Where are you going? Just type the name.', replies: [], expect: 'place' }),
+    eat_where: () => ({ text: aiReady() ? 'Where are you going? Type the name, or send me a photo of the menu and I’ll pick from what they actually serve.' : 'Where are you going? Just type the name.', replies: aiReady() ? [photo('Send a photo of the menu')] : [], expect: 'place' }),
+    photo_wait: () => ({ text: 'Reading the menu…', replies: [] }),
+    photo_none: () => ({ text: 'I couldn’t read a menu in that photo. Try again closer up, in good light, or just tell me the restaurant’s name.', replies: [photo('Try another photo')], expect: 'place' }),
+    photo_off: () => ({ text: 'I can’t read photos in this version yet. Tell me the restaurant’s name and I’ll put their menu in front of you with your picks.', replies: [], expect: 'place' }),
     event_day: (c) => { const wk = weekStart(c.t); const sat = addDays(wk, 5); const sun = addDays(wk, 6); return { text: 'Which day?', replies: [a('Saturday', 'event', 'gathering|' + (sat >= c.t ? sat : addDays(sat, 7))), a('Sunday', 'event', 'gathering|' + (sun >= c.t ? sun : addDays(sun, 7)))] }; },
     event_plan: (c, d) => ({ text: 'Done, it’s in for ' + dayWord(d) + '. On the day: eat normally earlier, start with protein and salad, then one serve of everything else. Pick the dessert you love most and enjoy it.', replies: [] }),
     quiet: () => ({ text: 'Perfect. One fun meal, keep the rest normal, and get a long walk in if you can.', replies: [] }),
@@ -146,7 +149,7 @@
       return { text: t.done + ' ' + App.plural(t.done, 'session') + ' in.' + (best && best.d > 0 ? ' Your ' + lower(D.EX[best.id].name) + ' is up ' + App.fmtKg(best.d) + ' kg since your first go.' : ' Give it two weeks and the numbers start moving.'), replies: [a('See my progress', 'progress')] };
     },
     dinners_q: () => ({ text: 'Your five dinners for this week are picked from the food you like.', card: { type: 'dinners' }, replies: [a('See them all', 'dinners'), a('Shuffle them', 'shuffle')] }),
-    menu_why: () => ({ text: 'Most protein, lightest sauces. You’ll leave full without feeling heavy, and there’s nothing to count.', replies: [] }),
+    menu_why: () => ({ text: 'They’re the most protein with the lightest sauces, so you leave full without feeling heavy. The “ask for” tweaks make them lighter still, and there’s nothing to count.', replies: [] }),
     locked: () => ({ text: 'Locked in. Enjoy it. I’ll ask how it went tonight.', replies: [] }),
     fallback: () => ({ text: 'I’m not sure I can help with that one yet. Here’s what I can sort out right now:', replies: [r('Plan a meal out', 'eat_where'), r('Move a session', 'cant_make'), r('I’m sore', 'sore_where')] }),
   };
@@ -156,6 +159,7 @@
     return [c.todays || c.next, parts[0]];
   }
   function r(label, go) { return { label, go }; }
+  function photo(label, data) { return { label, photo: true, data: data || '' }; }
   function a(label, act, data) { return { label, act, data }; }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
   function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -202,7 +206,10 @@
   }
   function restaurantPicks(name, cu) {
     if (name) App.rememberPlace(name, cu);
-    postRaw({ text: (name ? name + '. ' : '') + 'Here’s what I’d order:', card: { type: 'menu', place: name, cuisine: cu }, replies: [a('Lock it in', 'lock', name + '|' + cu), a('See the full menu', 'openMenu', name + '|' + cu), r('Why these?', 'menu_why')] });
+    const scanned = App.Views.placeMenu(name);
+    const replies = [a('Lock it in', 'lock', name + '|' + cu), a('See the full menu', 'openMenu', name + '|' + cu)];
+    if (aiReady() && name && !scanned) replies.push(photo('Send their menu', name + '|' + cu)); else replies.push(r('Why these?', 'menu_why'));
+    postRaw({ text: (name ? name + '. ' : '') + (scanned ? 'From their menu, here’s what I’d order:' : 'Here’s what I’d order' + (aiReady() && name ? '. Send me their menu and I’ll pick from what they actually serve:' : ':')), card: { type: 'menu', place: name, cuisine: cu }, replies });
   }
 
   // ── Thread mechanics ──────────────────────────────────────────────────────
@@ -307,7 +314,11 @@
     if (p.why) L.push('Their why: ' + p.why);
     if (p.health) L.push('Asthma: ' + (p.health.asthma ? 'yes' : 'no'));
     if (plan) {
-      L.push('Gym: ' + E.gymName(plan.gymId) + '; trains ' + plan.days.map((d) => DOW_LONG[d]).join(' and ') + ', ' + plan.mins + ' min, machines only');
+      L.push('Experience: ' + ((D.EXPERIENCE.find((x) => x.id === p.experience) || {}).label || 'new') + '. Program: ' + ((E.SPLITS[plan.split] || {}).name || 'full body') + (plan.superset ? ', with supersets' : '') + '. Prefers ' + ({ m: 'machines', x: 'a mix of machines and free weights', f: 'free weights' }[plan.style] || 'machines') + '.');
+      L.push('Gym: ' + E.gymName() + '; trains ' + plan.days.map((d) => DOW_LONG[d]).join(', ') + ', ' + plan.mins + ' min');
+      if (p.worries && p.worries.length) L.push('What gets in the way: ' + p.worries.join(', '));
+      if (p.focus && p.focus.length) L.push('Wants to bring up: ' + p.focus.join(', '));
+      const prs = E.prCount(); if (prs) L.push('Personal records so far: ' + prs);
       const n = E.nextOpen(); if (n) L.push('Next session: ' + E.sessionName(n) + ' on ' + fmtDate(E.slotDate(n)) + ' (' + exNames(n).join(', ') + ')');
       const t = E.totals(); L.push('Sessions done: ' + t.done + ' of ' + t.total);
       const w = E.week(); L.push('This week: ' + w.train + '/' + w.trainMax + ' sessions, ' + w.eat + '/5 good food days');
@@ -381,22 +392,65 @@
     if (imgOk != null) return Promise.resolve(imgOk);
     return Promise.resolve().then(() => aiSample.limits()).then((l) => (imgOk = !!(l && l.images))).catch(() => (imgOk = false));
   }
+  // What eating well means for this person today, for Claude reading a menu.
+  function goalText() {
+    const p = S().profile || {}; const g = p.goals || []; const L = [];
+    if (g.includes('fat')) L.push('losing some body fat, so lighter dishes that still fill you up');
+    if (g.includes('muscle') || g.includes('strong')) L.push((g.includes('muscle') ? 'building muscle' : 'getting stronger') + ', so plenty of protein');
+    if (g.includes('event') && p.event) L.push('getting ready for ' + p.event.name);
+    if (g.includes('energy') || g.includes('health')) L.push('more energy and better health');
+    const t = today(); const trained = S().log.some((l) => l.date === t) || E.slotsOn(t).length;
+    return (L.length ? 'Their goals: ' + L.join('; ') + '.' : 'Their goal: eating well without counting.') + (trained ? ' They train today, so a decent serve of carbs is fine.' : '');
+  }
   function readMenu(file, name, cu) {
     const M = D.MENUS[cu];
     const prompt = [
-      'You are a personal trainer helping a beginner order well at a restaurant. The image is a photo of the menu' + (name ? ' at ' + name : '') + (M ? ' (' + M.name + ' food)' : '') + '.',
-      'Pick the 3 best dishes on THIS menu for someone eating well: lean protein, vegetables, lighter sauces, still filling. No calorie numbers. Use dish names exactly as printed. Australian English.',
-      'Reply with only JSON: {"picks":[{"n":"dish name as printed","why":"why it is a good pick, under 10 words","tip":"one practical tweak when ordering, under 10 words"}],"treats":["up to 3 dish names best saved for a treat"]}',
+      'You are a personal trainer helping a client order well at a restaurant. The image is a photo of the menu' + (name ? ' at ' + name : '') + (M ? ' (' + M.name + ' food)' : '') + '.',
+      goalText(),
+      'Pick the 3 best dishes on THIS menu for them: lean protein, vegetables, lighter sauces, still satisfying. Use dish names exactly as printed. No calorie numbers. Australian English.',
+      'For each pick add 1 to 3 short requests they can make when ordering to make it healthier without losing what makes it good, e.g. "Dressing on the side", "Grilled, not fried", "Salad instead of chips". Each under 6 words.',
+      'Reply with only JSON: {"place":"restaurant name if printed, else empty","cuisine":"one of: ' + Object.keys(D.MENUS).join(', ') + '","picks":[{"n":"dish name as printed","why":"why it suits their goals, under 10 words","mods":["request"]}],"treats":["up to 3 dish names best saved for a treat"]}',
       'If the image is not a readable menu, reply {"picks":[]}.',
     ].join('\n');
     const str = (x, n) => (typeof x === 'string' ? x.trim().slice(0, n) : '');
     return aiSample.json(prompt, { images: [file], modelTier: 'quick' }).then((out) => ({
-      picks: (out && Array.isArray(out.picks) ? out.picks : []).filter((x) => x && str(x.n, 80)).slice(0, 3).map((x) => ({ n: str(x.n, 80), t: 'pick', why: str(x.why, 120), tip: str(x.tip, 120) })),
+      place: str(out && out.place, 60), cuisine: out && D.MENUS[out.cuisine] ? out.cuisine : '',
+      picks: (out && Array.isArray(out.picks) ? out.picks : []).filter((x) => x && str(x.n, 80)).slice(0, 3).map((x) => ({ n: str(x.n, 80), t: 'pick', why: str(x.why, 120), mods: (Array.isArray(x.mods) ? x.mods : []).map((m) => str(m, 40)).filter(Boolean).slice(0, 3) })),
       treats: (out && Array.isArray(out.treats) ? out.treats : []).map((x) => str(x, 80)).filter(Boolean).slice(0, 3).map((n) => ({ n, t: 'treat' })),
     }));
+  }
+  // A menu photo sent in the chat: it goes in the thread, Claude reads it, and the picks come
+  // back as an order card. ctx is "name|cuisine" when we already know the place.
+  function photoIn(file, ctx) {
+    if (!file || busy) return;
+    let [name, cu] = String(ctx || '').split('|');
+    if (!name) { const ev = S().events.filter((e) => e.type === 'eatout' && e.date === today()).pop(); const pl = S().places[0]; if (ev) { name = ev.title; cu = ev.cuisine; } else if (pl && App.nowMs() - pl.at < 3 * 3600000) { name = pl.name; cu = pl.cuisine; } }
+    clearReplies(); delete S().chatExpect;
+    App.thumb(file, 420, 0.6).then((img) => {
+      push({ from: 'me', text: 'Menu photo', img });
+      // only the latest few photos stay on the phone
+      S().chat.filter((m) => m.img).slice(0, -4).forEach((m) => { delete m.img; m.text = 'Menu photo'; });
+      App.save(); App.onCoachMessage && App.onCoachMessage(null);
+    }).catch(() => {});
+    busy = true; App.onCoachTyping && App.onCoachTyping(true);
+    const finish = (msg) => { busy = false; App.onCoachTyping && App.onCoachTyping(false); if (msg) postRaw(msg); App.sound('message'); App.haptic(); };
+    canReadMenus().then((yes) => {
+      if (!yes) return finish(resolve('photo_off'));
+      return readMenu(file, name, cu).then((res) => {
+        if (!res.picks.length) return finish(resolve('photo_none'));
+        const place = name || res.place || 'This restaurant';
+        const cuisine = cu || res.cuisine || E.detectCuisine(place) || '';
+        App.rememberPlace(place, cuisine, { picks: res.picks, treats: res.treats, at: App.nowMs() });
+        E.track('eatout');
+        finish({ text: 'From ' + (place === 'This restaurant' ? 'their' : place + '’s') + ' menu, here’s what I’d order:', card: { type: 'menu', place, cuisine }, replies: [a('Lock it in', 'lock', place + '|' + cuisine), a('See all three', 'openMenu', place + '|' + cuisine), r('Why these?', 'menu_why')] });
+      });
+    }).catch((e) => {
+      if (e && ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(e.code)) aiOff = true;
+      finish(resolve(e && e.code === 'image_rejected' ? 'photo_none' : 'photo_off'));
+    });
   }
 
   // A session starting moves the conversation on: old reply chips go.
   function clear() { clearReplies(); delete S().chatExpect; App.save(); }
-  App.Coach = { initAI, aiReady, setSession, checkIns, due, post, say, note, clear, tap, send, topic, act, expecting, unread, markRead, latest, isBusy, restaurant, canReadMenus, readMenu };
+  App.Coach = { initAI, aiReady, setSession, checkIns, due, post, say, note, clear, tap, send, topic, act, expecting, unread, markRead, latest, isBusy, restaurant, canReadMenus, readMenu, photoIn };
 })();

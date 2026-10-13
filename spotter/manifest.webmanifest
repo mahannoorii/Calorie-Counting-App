@@ -1,7 +1,7 @@
 {
   "name": "Spotter",
   "short_name": "Spotter",
-  "description": "A personal trainer in your pocket. Built for beginners.",
+  "description": "A personal trainer in your pocket, built around the gym you go to.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

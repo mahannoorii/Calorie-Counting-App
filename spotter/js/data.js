@@ -1,316 +1,8 @@
-/* Spotter — content and reference data.
-   Exercises, gyms, food, restaurant menus and awards live here, so a gym-mapping visit
-   or a coach review only has to touch this file. The coach's conversations are in coach.js. */
+/* Spotter — content and reference data: onboarding options, food, restaurant menus and
+   awards. Exercises are in exercises.js, gyms in gyms.js and the coach's conversations in
+   coach.js. */
 (function () {
   'use strict';
-
-  // ── Muscles (plain-language names for beginners) ──────────────────────────
-  const MUSCLES = {
-    quads: 'Front of thighs', hams: 'Back of thighs', glutes: 'Glutes', calves: 'Calves',
-    chest: 'Chest', back: 'Upper back', lats: 'Sides of back', shoulders: 'Shoulders',
-    biceps: 'Biceps', triceps: 'Back of arms', core: 'Core', hips: 'Outer hips',
-  };
-
-  // ── Exercises ─────────────────────────────────────────────────────────────
-  // unit: kg (weight × reps), reps (bodyweight), sec (hold), min (cardio)
-  // step: smallest usual jump on that machine · start: cautious first-day guess
-  const EX = {
-    leg_press: {
-      name: 'Leg press', kind: 'machine', art: 'legpress', unit: 'kg', reps: [10, 12], step: 5, start: 30, rest: 90,
-      muscles: ['quads', 'glutes'], muscles2: ['hams'], focus: 'Legs and glutes',
-      setup: [
-        'Sit with your back and head flat against the pad.',
-        'Feet hip-width apart in the middle of the platform.',
-        'Move the seat so your knees start bent at about 90 degrees.',
-        'Hold the side handles and release the safety catch if there is one.',
-      ],
-      move: [
-        'Push through your whole foot until your legs are almost straight.',
-        'Stop just before your knees lock.',
-        'Lower slowly for 2 seconds until your knees are back near 90 degrees.',
-      ],
-      feel: 'Front of your thighs and your glutes.',
-      avoid: ['Locking your knees at the top', 'Letting your lower back or hips lift off the pad', 'Heels lifting off the platform'],
-      alts: ['hack_squat_machine', 'goblet_squat'],
-    },
-    chest_press: {
-      name: 'Chest press machine', kind: 'machine', art: 'chestpress', unit: 'kg', reps: [10, 12], step: 2.5, start: 10, rest: 75,
-      muscles: ['chest'], muscles2: ['shoulders', 'triceps'], focus: 'Chest and arms',
-      setup: [
-        'Set the seat so the handles line up with the middle of your chest.',
-        'Sit with your back flat against the pad and feet flat on the floor.',
-        'Grip the handles with your wrists straight.',
-      ],
-      move: [
-        'Breathe out and push the handles forward until your arms are almost straight.',
-        'Return slowly until you feel a light stretch across your chest.',
-        'Keep the weights from touching down between reps.',
-      ],
-      feel: 'Chest, front of the shoulders and the back of your arms.',
-      avoid: ['Shrugging your shoulders up to your ears', 'Arching your back off the pad', 'Snapping your elbows straight'],
-      alts: ['incline_chest_press', 'pec_deck'],
-    },
-    seated_row: {
-      name: 'Seated row', kind: 'cable', art: 'row', unit: 'kg', reps: [10, 12], step: 2.5, start: 15, rest: 75,
-      muscles: ['back', 'lats'], muscles2: ['biceps', 'shoulders'], focus: 'Back and posture',
-      setup: [
-        'Sit tall with your feet on the footplates and knees slightly bent.',
-        'Hold the handle with your arms straight and chest up.',
-      ],
-      move: [
-        'Pull the handle to your belly button, elbows close to your sides.',
-        'Squeeze your shoulder blades together for a second.',
-        'Let your arms straighten slowly while you stay tall.',
-      ],
-      feel: 'The middle of your back and the back of your shoulders.',
-      avoid: ['Leaning back to swing the weight', 'Rounding your back as you reach forward', 'Shrugging your shoulders'],
-      alts: ['machine_row', 'lat_pulldown'],
-    },
-    leg_curl: {
-      name: 'Seated leg curl', kind: 'machine', art: 'legcurl', unit: 'kg', reps: [10, 12], step: 2.5, start: 10, rest: 60,
-      muscles: ['hams'], muscles2: ['calves'], focus: 'Back of thighs',
-      setup: [
-        'Move the back pad so your knees line up with the machine’s pivot point (often marked with a dot).',
-        'Rest the lower pad just above your heels.',
-        'Bring the thigh pad down so it sits snugly on top of your thighs.',
-      ],
-      move: [
-        'Curl your heels down and back as far as is comfortable.',
-        'Pause for a second.',
-        'Let your legs return slowly.',
-      ],
-      feel: 'The back of your thighs.',
-      avoid: ['Lifting your hips off the seat', 'Letting the weight drop back quickly'],
-      alts: ['lying_leg_curl', 'glute_bridge'],
-    },
-    dead_bug: {
-      name: 'Dead bug', kind: 'mat', art: 'mat', unit: 'reps', perSide: true, reps: [6, 10], step: 1, start: 6, rest: 45,
-      muscles: ['core'], muscles2: [], focus: 'Deep core',
-      setup: [
-        'Grab a mat in a quiet corner of the stretching area.',
-        'Lie on your back, arms pointing at the ceiling.',
-        'Lift your knees above your hips, bent at 90 degrees.',
-        'Gently press your lower back into the mat.',
-      ],
-      move: [
-        'Breathe out and slowly lower your right arm and left leg toward the floor.',
-        'Keep your lower back pressed down the whole time.',
-        'Bring them back and switch sides. One each side is one rep.',
-      ],
-      feel: 'Deep in your stomach, not your lower back.',
-      avoid: ['Letting your lower back arch off the mat', 'Rushing'],
-      alts: ['plank', 'ab_crunch_machine'],
-    },
-    hip_abduction: {
-      name: 'Hip abduction machine', kind: 'machine', art: 'abduction', unit: 'kg', reps: [12, 15], step: 5, start: 20, rest: 60,
-      muscles: ['hips', 'glutes'], muscles2: [], focus: 'Outer hips and glutes',
-      setup: [
-        'Set the start position so your legs begin close together.',
-        'Sit tall with the pads on the outside of your knees.',
-      ],
-      move: [
-        'Push your knees out as wide as is comfortable.',
-        'Pause for a second.',
-        'Bring them back in slowly, without letting the weights touch.',
-      ],
-      feel: 'The outside of your hips and your glutes.',
-      avoid: ['Bouncing the weight', 'Slumping in the seat'],
-      alts: ['cable_kickback', 'glute_bridge'],
-    },
-    hip_thrust: {
-      name: 'Hip thrust machine', kind: 'machine', art: 'hipthrust', unit: 'kg', reps: [10, 12], step: 5, start: 20, rest: 75,
-      muscles: ['glutes'], muscles2: ['hams'], focus: 'Glutes',
-      setup: [
-        'Sit with your upper back against the pad.',
-        'Position the pad or belt across your hips.',
-        'Feet flat, about hip-width apart.',
-      ],
-      move: [
-        'Drive through your heels and lift your hips until your body is straight from shoulders to knees.',
-        'Squeeze your glutes at the top for a second.',
-        'Lower slowly.',
-      ],
-      feel: 'Your glutes most of all, a little in the back of your thighs.',
-      avoid: ['Over-arching your lower back at the top', 'Pushing through your toes'],
-      alts: ['glute_bridge', 'cable_kickback'],
-    },
-    lat_pulldown: {
-      name: 'Lat pulldown', kind: 'cable', art: 'pulldown', unit: 'kg', reps: [10, 12], step: 2.5, start: 15, rest: 75,
-      muscles: ['lats'], muscles2: ['biceps', 'back'], focus: 'Back and arms',
-      setup: [
-        'Adjust the knee pad so your thighs are held snugly.',
-        'Stand up, grab the bar a little wider than your shoulders, and sit back down.',
-      ],
-      move: [
-        'Lean back slightly and pull the bar to your upper chest.',
-        'Lead with your elbows: down and back.',
-        'Let the bar rise slowly until your arms are straight.',
-      ],
-      feel: 'The sides of your back and your biceps.',
-      avoid: ['Pulling the bar behind your neck', 'Swinging your body to move the weight'],
-      alts: ['assisted_pullup', 'machine_row'],
-    },
-    shoulder_press: {
-      name: 'Shoulder press machine', kind: 'machine', art: 'shoulderpress', unit: 'kg', reps: [10, 12], step: 2.5, start: 5, rest: 75,
-      muscles: ['shoulders'], muscles2: ['triceps'], focus: 'Shoulders and arms',
-      setup: [
-        'Set the seat so the handles start at about shoulder height.',
-        'Sit with your back against the pad and feet flat.',
-      ],
-      move: [
-        'Breathe out and press up until your arms are almost straight.',
-        'Lower slowly back to shoulder height.',
-      ],
-      feel: 'Your shoulders and the back of your arms.',
-      avoid: ['Arching your lower back', 'Shrugging', 'Locking your elbows hard'],
-      alts: ['db_shoulder_press', 'chest_press'],
-    },
-    leg_extension: {
-      name: 'Leg extension', kind: 'machine', art: 'legext', unit: 'kg', reps: [10, 12], step: 2.5, start: 10, rest: 60,
-      muscles: ['quads'], muscles2: [], focus: 'Front of thighs',
-      setup: [
-        'Move the back pad so your knees line up with the pivot point.',
-        'Set the ankle pad on your lower shins, just above your feet.',
-        'Hold the side handles.',
-      ],
-      move: [
-        'Straighten your legs and pause for a second at the top.',
-        'Lower slowly for 2 seconds.',
-      ],
-      feel: 'The front of your thighs.',
-      avoid: ['Kicking the weight up fast', 'Lifting your hips off the seat'],
-      alts: ['leg_press', 'goblet_squat'],
-    },
-    plank: {
-      name: 'Plank', kind: 'mat', art: 'mat', unit: 'sec', reps: [20, 40], step: 5, start: 20, rest: 45,
-      muscles: ['core'], muscles2: ['shoulders'], focus: 'Whole core',
-      setup: [
-        'On a mat, rest on your forearms with elbows under your shoulders.',
-        'Step your feet back so your body is straight from head to heels.',
-        'New to it? Keep your knees down. That counts.',
-      ],
-      move: [
-        'Squeeze your glutes and tighten your stomach.',
-        'Breathe slowly and hold.',
-        'Stop when your hips start to sag.',
-      ],
-      feel: 'Your stomach and shoulders. Not your lower back.',
-      avoid: ['Hips sagging or piking up', 'Holding your breath'],
-      alts: ['dead_bug', 'ab_crunch_machine'],
-    },
-    pec_deck: {
-      name: 'Pec deck', kind: 'machine', art: 'pecdeck', unit: 'kg', reps: [12, 15], step: 2.5, start: 10, rest: 60,
-      muscles: ['chest'], muscles2: ['shoulders'], focus: 'Chest',
-      setup: [
-        'Set the seat so the handles are at chest height.',
-        'Sit tall with your back against the pad.',
-      ],
-      move: [
-        'Bring the handles together in front of your chest, elbows slightly bent.',
-        'Squeeze for a second.',
-        'Open slowly to a light stretch.',
-      ],
-      feel: 'Across your chest.',
-      avoid: ['Letting the arms fly back too far', 'Rounding your shoulders forward'],
-      alts: ['chest_press', 'incline_chest_press'],
-    },
-
-    // ── Alternatives used by swaps ──
-    glute_bridge: {
-      name: 'Glute bridge', kind: 'mat', art: 'mat', unit: 'reps', reps: [12, 15], step: 1, start: 12, rest: 45,
-      muscles: ['glutes'], muscles2: ['hams'], focus: 'Glutes',
-      setup: ['Lie on your back on a mat, knees bent, feet flat and hip-width apart.'],
-      move: ['Push through your heels and lift your hips.', 'Squeeze your glutes at the top.', 'Lower slowly.'],
-      feel: 'Your glutes.', avoid: ['Arching your lower back at the top'], alts: ['hip_thrust', 'cable_kickback'],
-    },
-    machine_row: {
-      name: 'Chest-supported row machine', kind: 'machine', art: 'row', unit: 'kg', reps: [10, 12], step: 2.5, start: 15, rest: 75,
-      muscles: ['back', 'lats'], muscles2: ['biceps'], focus: 'Back and posture',
-      setup: ['Set the seat so the chest pad sits at the middle of your chest.', 'Grab the handles with arms straight.'],
-      move: ['Pull the handles back, elbows close to your sides.', 'Squeeze your shoulder blades.', 'Return slowly.'],
-      feel: 'The middle of your back.', avoid: ['Lifting your chest off the pad'], alts: ['seated_row', 'lat_pulldown'],
-    },
-    assisted_pullup: {
-      name: 'Assisted pull-up machine', kind: 'machine', art: 'pulldown', unit: 'kg', reps: [6, 10], step: 5, start: 40, rest: 90, assist: true,
-      muscles: ['lats'], muscles2: ['biceps'], focus: 'Back and arms',
-      setup: ['Choose the help weight. More weight means more help.', 'Kneel or stand on the pad and grab the handles.'],
-      move: ['Pull your chest up toward the handles.', 'Lower slowly until your arms are straight.'],
-      feel: 'The sides of your back.', avoid: ['Dropping down fast'], alts: ['lat_pulldown', 'machine_row'],
-    },
-    lying_leg_curl: {
-      name: 'Lying leg curl', kind: 'machine', art: 'legcurl', unit: 'kg', reps: [10, 12], step: 2.5, start: 10, rest: 60,
-      muscles: ['hams'], muscles2: ['calves'], focus: 'Back of thighs',
-      setup: ['Lie face down with your knees just off the end of the bench.', 'Pad just above your heels.'],
-      move: ['Curl your heels toward your glutes.', 'Lower slowly.'],
-      feel: 'The back of your thighs.', avoid: ['Lifting your hips off the bench'], alts: ['leg_curl', 'glute_bridge'],
-    },
-    cable_kickback: {
-      name: 'Cable glute kickback', kind: 'cable', art: 'cable', unit: 'kg', perSide: true, reps: [10, 12], step: 2.5, start: 5, rest: 45,
-      muscles: ['glutes'], muscles2: ['hams'], focus: 'Glutes',
-      setup: ['Attach the ankle strap to a low cable.', 'Hold the frame and lean forward slightly.'],
-      move: ['Kick your leg straight back, squeezing your glute.', 'Return slowly. Do all reps, then switch legs.'],
-      feel: 'Your glute on the working side.', avoid: ['Swinging', 'Arching your lower back'], alts: ['hip_thrust', 'glute_bridge'],
-    },
-    incline_chest_press: {
-      name: 'Incline chest press machine', kind: 'machine', art: 'chestpress', unit: 'kg', reps: [10, 12], step: 2.5, start: 10, rest: 75,
-      muscles: ['chest'], muscles2: ['shoulders', 'triceps'], focus: 'Upper chest',
-      setup: ['Set the seat so the handles line up with your upper chest.', 'Back flat against the pad.'],
-      move: ['Press up and forward until your arms are almost straight.', 'Return slowly.'],
-      feel: 'Upper chest and shoulders.', avoid: ['Arching your back'], alts: ['chest_press', 'pec_deck'],
-    },
-    db_shoulder_press: {
-      name: 'Seated dumbbell shoulder press', kind: 'free', art: 'dumbbell', unit: 'kg', reps: [10, 12], step: 1, start: 4, rest: 75,
-      muscles: ['shoulders'], muscles2: ['triceps'], focus: 'Shoulders and arms',
-      setup: ['Sit on a bench with an upright back.', 'Hold a dumbbell in each hand at shoulder height.'],
-      move: ['Press both up until your arms are almost straight.', 'Lower slowly to shoulder height.'],
-      feel: 'Your shoulders.', avoid: ['Arching your back'], alts: ['shoulder_press'],
-    },
-    ab_crunch_machine: {
-      name: 'Ab crunch machine', kind: 'machine', art: 'abcrunch', unit: 'kg', reps: [12, 15], step: 2.5, start: 10, rest: 45,
-      muscles: ['core'], muscles2: [], focus: 'Core',
-      setup: ['Set the seat so the pads sit comfortably on your chest or shoulders.'],
-      move: ['Breathe out and curl your chest toward your hips.', 'Return slowly.'],
-      feel: 'Your stomach.', avoid: ['Pulling with your arms'], alts: ['dead_bug', 'plank'],
-    },
-    hack_squat_machine: {
-      name: 'Hack squat machine', kind: 'machine', art: 'legpress', unit: 'kg', reps: [10, 12], step: 5, start: 20, rest: 90,
-      muscles: ['quads', 'glutes'], muscles2: ['hams'], focus: 'Legs and glutes',
-      setup: ['Shoulders under the pads, back flat against the backrest.', 'Feet hip-width in the middle of the platform.'],
-      move: ['Bend your knees and lower slowly.', 'Push back up through your whole foot.'],
-      feel: 'Front of your thighs and glutes.', avoid: ['Heels lifting', 'Locking your knees'], alts: ['leg_press', 'goblet_squat'],
-    },
-    goblet_squat: {
-      name: 'Goblet squat', kind: 'free', art: 'dumbbell', unit: 'kg', reps: [10, 12], step: 2, start: 6, rest: 75,
-      muscles: ['quads', 'glutes'], muscles2: ['core'], focus: 'Legs and glutes',
-      setup: ['Hold one dumbbell upright against your chest.', 'Feet a little wider than your hips.'],
-      move: ['Sit down between your heels, chest up.', 'Stand back up through your whole foot.'],
-      feel: 'Front of your thighs and glutes.', avoid: ['Heels lifting', 'Knees caving in'], alts: ['leg_press'],
-    },
-
-    // ── Warm-up and cool-down cardio ──
-    bike: {
-      name: 'Exercise bike', kind: 'cardio', art: 'bike', unit: 'min',
-      setup: ['Set the seat so your knee is slightly bent at the bottom of each pedal turn.'],
-      move: ['Start at an easy pace you could hold a chat at.', 'Build up a little every couple of minutes.'],
-      feel: 'Warm and breathing a bit faster, but able to talk.', alts: ['cross_trainer', 'treadmill'],
-    },
-    cross_trainer: {
-      name: 'Cross trainer', kind: 'cardio', art: 'crosstrainer', unit: 'min',
-      setup: ['Step on, hold the moving handles.'], move: ['Start easy and build up gradually.'],
-      feel: 'Warm and breathing a bit faster.', alts: ['bike', 'treadmill'],
-    },
-    treadmill: {
-      name: 'Treadmill walk', kind: 'cardio', art: 'treadmill', unit: 'min',
-      setup: ['Clip the safety key to your top before you start.'], move: ['Walk briskly. Add a small incline if you like.'],
-      feel: 'Warm and breathing a bit faster.', alts: ['bike', 'cross_trainer'],
-    },
-  };
-
-  // Base program slots, in priority order. Session length decides how many are used.
-  const PROGRAM = {
-    A: { name: 'Session A', title: 'Legs, chest and back', ex: ['leg_press', 'chest_press', 'seated_row', 'leg_curl', 'dead_bug', 'hip_abduction'] },
-    B: { name: 'Session B', title: 'Glutes, back and shoulders', ex: ['hip_thrust', 'lat_pulldown', 'shoulder_press', 'leg_extension', 'plank', 'pec_deck'] },
-  };
 
   const COOLDOWN = [
     { name: 'Front of thigh stretch', how: 'Hold a machine for balance and pull one heel toward your glute.', secs: 30 },
@@ -319,42 +11,60 @@
     { name: 'Child’s pose', how: 'Knees wide on a mat, sit back on your heels, arms long.', secs: 30 },
   ];
 
-  // ── Gyms ──────────────────────────────────────────────────────────────────
-  // Equipment lists are a typical setup until each gym is mapped in person.
-  const FULL_KIT = ['leg_press', 'chest_press', 'seated_row', 'leg_curl', 'hip_abduction', 'hip_thrust', 'lat_pulldown',
-    'shoulder_press', 'leg_extension', 'pec_deck', 'machine_row', 'assisted_pullup', 'lying_leg_curl', 'cable_kickback',
-    'incline_chest_press', 'ab_crunch_machine', 'hack_squat_machine', 'bike', 'cross_trainer', 'treadmill',
-    'dead_bug', 'plank', 'glute_bridge', 'goblet_squat', 'db_shoulder_press'];
-  const GYMS = [
-    { id: 'af-rhn', brand: 'Anytime Fitness', branch: 'Rouse Hill North', area: 'Rouse Hill', kit: FULL_KIT, mapped: false },
-    { id: 'af-nk', brand: 'Anytime Fitness', branch: 'North Kellyville', area: 'North Kellyville', kit: FULL_KIT, mapped: false },
-    { id: 'af-bh', brand: 'Anytime Fitness', branch: 'Box Hill', area: 'Box Hill', kit: FULL_KIT, mapped: false },
-    { id: 'af-cq', brand: 'Anytime Fitness', branch: 'Circular Quay', area: 'Sydney CBD', kit: FULL_KIT, mapped: false },
-    { id: 'other', brand: 'My gym', branch: 'isn’t listed yet', area: 'Any gym with machines', kit: FULL_KIT, mapped: false, generic: true },
-  ];
-
   // ── Onboarding options ────────────────────────────────────────────────────
+  // lvl: who sees it (1 = new to the gym, 3 = lifts regularly); no lvl means everyone.
   const GOALS = [
     { id: 'event', label: 'A holiday or big event', icon: 'plane' },
-    { id: 'strong', label: 'Feeling stronger', icon: 'bolt' },
-    { id: 'energy', label: 'More energy', icon: 'sun' },
+    { id: 'muscle', label: 'Building muscle', icon: 'dumbbell' },
+    { id: 'strong', label: 'Getting stronger', icon: 'bolt' },
     { id: 'fat', label: 'Losing some body fat', icon: 'flame' },
-    { id: 'confidence', label: 'Confidence in the gym', icon: 'shield' },
+    { id: 'energy', label: 'More energy', icon: 'sun' },
+    { id: 'confidence', label: 'Confidence in the gym', icon: 'shield', upTo: 1 },
     { id: 'health', label: 'Looking after my health', icon: 'heart' },
   ];
   const FEELS = ['Confident', 'Strong', 'Energetic', 'Proud of myself', 'Comfortable in my clothes', 'Relaxed', 'Healthy', 'Ready for anything'];
   const EXPERIENCE = [
-    { id: 'never', label: 'Never', sub: 'This is all new to me' },
-    { id: 'little', label: 'A little', sub: 'I’ve tried, but it never stuck' },
-    { id: 'regular', label: 'Yes, regularly', sub: 'I’ve trained consistently before' },
+    { id: 'never', label: 'Never', sub: 'This is all new to me', lvl: 1 },
+    { id: 'little', label: 'A little', sub: 'I’ve tried, but it never stuck', lvl: 1 },
+    { id: 'regular', label: 'On and off', sub: 'I know my way around the main machines', lvl: 2 },
+    { id: 'lifter', label: 'I lift regularly', sub: 'I train most weeks and know the big lifts', lvl: 3 },
   ];
-  const WORRIES = [
-    { id: 'what', label: 'Not knowing what to do' },
-    { id: 'machines', label: 'Working out the machines' },
-    { id: 'watched', label: 'Feeling watched' },
-    { id: 'busy', label: 'Machines being taken' },
-    { id: 'motivation', label: 'Staying motivated' },
-    { id: 'food', label: 'Knowing what to eat' },
+  // What gets in the way depends on how long you've been at it.
+  const WORRIES = {
+    1: [
+      { id: 'what', label: 'Not knowing what to do' },
+      { id: 'machines', label: 'Working out the machines' },
+      { id: 'watched', label: 'Feeling watched' },
+      { id: 'busy', label: 'Machines being taken' },
+      { id: 'motivation', label: 'Staying motivated' },
+      { id: 'time', label: 'Finding the time' },
+      { id: 'food', label: 'Knowing what to eat' },
+    ],
+    2: [
+      { id: 'program', label: 'No real plan, I just wing it' },
+      { id: 'time', label: 'Not enough time' },
+      { id: 'consistency', label: 'Staying consistent' },
+      { id: 'plateau', label: 'My progress has stalled' },
+      { id: 'bored', label: 'Bored of the same routine' },
+      { id: 'form', label: 'Not sure my form is right' },
+      { id: 'busy', label: 'Equipment taken at peak times' },
+      { id: 'food', label: 'Eating to match my training' },
+    ],
+    3: [
+      { id: 'time', label: 'Not enough time' },
+      { id: 'efficient', label: 'Getting the most out of a short session' },
+      { id: 'plateau', label: 'Stuck at the same weights' },
+      { id: 'program', label: 'Need a proper program to follow' },
+      { id: 'bored', label: 'Same routine for too long' },
+      { id: 'busy', label: 'Equipment taken at peak times' },
+      { id: 'recovery', label: 'Recovering between sessions' },
+      { id: 'food', label: 'Eating to match my training' },
+    ],
+  };
+  // Areas an experienced lifter can bring up.
+  const FOCUS = [
+    { id: 'glutes', label: 'Glutes' }, { id: 'legs', label: 'Legs' }, { id: 'chest', label: 'Chest' }, { id: 'back', label: 'Back' },
+    { id: 'shoulders', label: 'Shoulders' }, { id: 'arms', label: 'Arms' }, { id: 'core', label: 'Core' },
   ];
   const TIMES = [
     { id: 'morning', label: 'Morning', hour: 7, at: '7:00 am' },
@@ -583,6 +293,56 @@
       { n: 'Banana bread with butter', t: 'treat' },
     ] },
   };
+  // What to ask for when ordering each pick.
+  const MODS = {
+    "Grilled chicken, rocket and parmesan salad": ["Dressing on the side", "Go easy on the parmesan", "Add grilled veg"],
+    "Spaghetti marinara": ["Half serve of pasta", "Extra seafood", "Side salad instead of bread"],
+    "Minestrone": ["No extra parmesan", "Skip the bread basket"],
+    "Thin-crust margherita, shared": ["Thin base", "Light on the cheese", "Rocket on top"],
+    "Chicken and rocket salad": ["Dressing on the side", "Extra chicken"],
+    "Prosciutto and rocket thin crust": ["Thin base", "Light on the cheese"],
+    "Sashimi set with salad": ["Small rice on the side", "Dressing on the side"],
+    "Chicken teriyaki bento": ["Sauce on the side", "Half rice, extra salad"],
+    "Edamame": ["Light on the salt"],
+    "Shio or shoyu ramen with chicken": ["Extra greens", "Half noodles", "No extra fat or butter"],
+    "Chicken karaage, small serve": ["Lemon instead of mayo"],
+    "Chicken larb": ["Rice on the side", "Extra lettuce cups"],
+    "Tom yum with prawns": ["Clear soup, not creamy", "Extra prawns"],
+    "Chicken and vegetable stir-fry": ["Less oil", "Steamed rice, not fried", "Extra veg"],
+    "Steamed fish with ginger and shallot": ["Steamed rice, not fried", "Light on the oil"],
+    "Steamed dumplings": ["Steamed, not pan-fried", "Vinegar instead of chilli oil"],
+    "Chicken pho": ["Extra herbs and sprouts", "Breast meat", "Go easy on the hoisin"],
+    "Fresh rice paper rolls": ["Sauce on the side", "Extra prawn or chicken"],
+    "Lemongrass chicken vermicelli salad": ["Dressing on the side", "No spring roll on top"],
+    "Tandoori chicken with salad": ["Raita instead of a creamy sauce", "Extra salad"],
+    "Dal with plain rice": ["Plain rice, not pilau", "Small rice serve"],
+    "Plain roti": ["No butter on top"],
+    "Chicken burrito bowl": ["No sour cream", "Extra salsa", "Half rice, extra beans"],
+    "Grilled fish tacos": ["Grilled, not fried", "Light on the mayo"],
+    "Chicken fajitas": ["Extra veg", "Salsa instead of cheese"],
+    "Chicken shish plate with salad": ["Tabouli instead of chips", "Garlic sauce on the side", "Half the bread"],
+    "Chicken shawarma salad bowl": ["Garlic sauce on the side", "Extra salad", "No chips"],
+    "Tabouli and hummus": ["Veg sticks instead of extra bread"],
+    "Chicken souvlaki plate with Greek salad": ["One pita", "Tzatziki instead of chips", "Light on the oil"],
+    "Grilled octopus or fish": ["Salad instead of chips", "Lemon instead of butter"],
+    "Horiatiki (Greek salad)": ["Half the feta", "Dressing on the side"],
+    "Bibimbap": ["Gochujang on the side", "Half rice", "Extra veg"],
+    "Bulgogi with lettuce wraps": ["Extra lettuce", "Small rice"],
+    "Soft tofu stew": ["Small rice", "Mild if you like"],
+    "Grilled barramundi with salad": ["Salad or veg instead of chips", "Sauce on the side"],
+    "Chicken Caesar salad": ["Dressing on the side", "Hold the croutons", "Extra chicken"],
+    "Steak with vegetables": ["Sauce on the side", "Veg instead of chips"],
+    "Grilled chicken burger": ["No mayo", "Extra salad", "Salad instead of fries"],
+    "Burger in a lettuce wrap": ["No bun", "Extra tomato and pickles"],
+    "Single beef burger with a side salad": ["Single patty", "One slice of cheese", "Salad instead of fries"],
+    "Quarter chicken with salad": ["Breast quarter", "Salad instead of chips", "Skip the skin"],
+    "Chicken breast and tabouli": ["Garlic sauce on the side", "Extra tabouli"],
+    "Chicken wrap": ["Extra salad", "Light sauce", "No chips inside"],
+    "Eggs on sourdough with spinach": ["Poached", "Light on the butter", "Add avocado"],
+    "Smashed avo with poached eggs": ["An extra egg", "Hold the feta"],
+    "Greek yoghurt, berries and granola": ["Granola on the side", "Extra berries"],
+  };
+  Object.keys(MENUS).forEach((k) => MENUS[k].items.forEach((it) => { if (it.t === 'pick' && MODS[it.n]) it.mods = MODS[it.n]; }));
   // Words in a place's name that give away its cuisine. Checked in order.
   const CUISINE_KEYS = [
     ['pizza', ['pizza', 'pizzeria', 'crust', 'domino']],
@@ -626,7 +386,8 @@
     { id: 'first', name: 'First Session', desc: 'You walked in and did it.', icon: 'dumbbell', metal: 'gold' },
     { id: 'week1', name: 'First Week', desc: 'Every session in your first week.', icon: 'calendar', metal: 'gold' },
     { id: 'perfect', name: 'Perfect Week', desc: 'Training and food goals both met in one week.', icon: 'star', metal: 'gold' },
-    { id: 'stronger', name: 'Stronger', desc: 'You lifted more than last time.', icon: 'up', metal: 'silver' },
+    { id: 'stronger', name: 'First PR', desc: 'Beat your best on an exercise.', icon: 'up', metal: 'silver' },
+    { id: 'pr10', name: 'Record Breaker', desc: 'Ten personal records.', icon: 'bolt', metal: 'gold' },
     { id: 'dialled', name: 'Dialled In', desc: 'Saved your settings on a machine.', icon: 'sliders', metal: 'silver' },
     { id: 'smartorder', name: 'Smart Order', desc: 'Ate out with a plan.', icon: 'fork', metal: 'silver' },
     { id: 'streak3', name: 'Three-Week Streak', desc: 'Three weeks in a row on target.', icon: 'flame', metal: 'gold' },
@@ -638,7 +399,7 @@
   const DEFAULT_REWARDS = { 2: 'Your favourite coffee and cake', 4: 'A movie night, your pick', 6: 'New gym shoes' };
 
   window.SpotterData = {
-    MUSCLES, EX, PROGRAM, COOLDOWN, GYMS, GOALS, FEELS, EXPERIENCE, WORRIES, TIMES,
+    COOLDOWN, GOALS, FEELS, EXPERIENCE, WORRIES, FOCUS, TIMES,
     CUISINES, DERAILERS, MEALS, MENUS, CUISINE_KEYS, MOMENTS, SCREENING, AWARDS, DEFAULT_REWARDS,
   };
 })();

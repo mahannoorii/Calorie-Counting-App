@@ -1,11 +1,13 @@
 /* Spotter — offline support. Bump CACHE_VERSION after changing any file so installed copies update. */
-const CACHE_VERSION = 'spotter-v2';
+const CACHE_VERSION = 'spotter-v3';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './css/app.css',
   './js/data.js',
+  './js/exercises.js',
+  './js/gyms.js',
   './js/core.js',
   './js/engine.js',
   './js/coach.js',

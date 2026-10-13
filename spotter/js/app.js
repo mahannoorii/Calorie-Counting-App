@@ -7,6 +7,7 @@
   const { today, addDays, weekStart, rel, fmtDate } = App;
 
   App.S = migrate(App.load());
+  backfillRecords();
   App.tab = 'today';
   App.Q = [];
   App.entering = true;
@@ -14,7 +15,21 @@
 
   // Carry a first-prototype profile and history over, so testers keep their progress.
   function migrate(st) {
-    if (st.profile) return st;
+    if (st.profile) {
+      const p = st.profile;
+      if (p.experience === 'regular' && (p.worries || []).includes('motivation')) p.worries = p.worries.map((w) => (w === 'motivation' ? 'consistency' : w));
+      if (!p.focus) p.focus = [];
+      if (!p.gym) {
+        // the gym's record from the research, plus anything they've already used or been planned
+        // there: if they've logged hip thrusts, the gym has the machine
+        p.gym = E.legacyGym(p.gymId);
+        const used = new Set();
+        (st.log || []).forEach((l) => l.ex.forEach((e) => used.add(e.id)));
+        if (st.plan && st.plan.sessions) Object.keys(st.plan.sessions).forEach((k) => (st.plan.sessions[k].ex || []).forEach((id) => used.add(st.swaps && st.swaps[id] || id)));
+        used.forEach((id) => (D.EX[id] ? D.EX[id].eq : []).forEach((t) => { if (!p.gym.kit.includes(t)) p.gym.kit.push(t); }));
+      }
+      return st;
+    }
     try {
       const old = JSON.parse(localStorage.getItem('spotter.v1') || 'null');
       if (!old || !old.profile) return st;
@@ -30,6 +45,20 @@
     } catch (e) { return st; }
   }
 
+  // Sessions logged before records existed: work out which sets were records at the time.
+  function backfillRecords() {
+    const s = App.S; if (!s.log.length || s.seen.prBackfill) return;
+    const all = s.log;
+    all.forEach((entry, i) => {
+      if (entry.prs) return;
+      s.log = all.slice(0, i); entry.prs = [];
+      entry.ex.forEach((e) => {
+        for (let k = e.sets.length - 1; k >= 0; k--) { const r = E.prFor(e.id, e.sets[k], e.sets.slice(0, k)); if (r) { entry.prs.push(Object.assign({ id: e.id, w: e.sets[k].w, r: e.sets[k].r }, r)); break; } }
+      });
+    });
+    s.log = all; s.seen.prBackfill = true; App.save();
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   App.render = function () {
     const app = document.getElementById('app');
@@ -41,7 +70,7 @@
       app.innerHTML = App.Views.shell();
       App.entering = false;
     }
-    App.Views.animateRings(); App.Views.animateBars();
+    App.Views.animateBars();
     onScroll();
   };
   function onScroll() { document.body.classList.toggle('is-scrolled', window.scrollY > 46 && !App.ob.active && App.tab !== 'coach'); }
@@ -92,7 +121,7 @@
     App.checkAwards(); setTimeout(() => App.Views.celebrate(), 700);
   };
   App.rememberPlace = function (name, cu, menu) {
-    if (!name || !cu) return;
+    if (!name) return;
     const s = S(); const key = name.toLowerCase();
     const old = s.places.find((x) => x.name.toLowerCase() === key);
     const entry = { name, cuisine: cu, at: Date.now() };
@@ -116,7 +145,8 @@
     if (s.log.length >= 1) give('first');
     const w1 = plan.slots.filter((x) => x.week === 1 && !E.isSkipped(x)); if (w1.length && w1.every((x) => E.isDone(x))) give('week1');
     [weekStart(t), addDays(weekStart(t), -7)].forEach((wk) => { if (wk >= weekStart(plan.start) && E.targetInWeek(wk) && E.week(wk).perfect) give('perfect'); });
-    if (s.seen.stronger) give('stronger');
+    if (s.seen.stronger || E.prCount() >= 1) give('stronger');
+    if (E.prCount() >= 10) give('pr10');
     if (Object.keys(s.exSettings).some((k) => s.exSettings[k] && s.exSettings[k].seat)) give('dialled');
     if (s.events.some((e) => e.type === 'eatout')) give('smartorder');
     if (E.streakWeeks() >= 3) give('streak3');
@@ -152,7 +182,10 @@
     const el = ev.target; if (!el || !el.dataset || !el.dataset.change) return;
     const fn = App.ACT[el.dataset.change]; if (fn) fn(el, ev);
   });
+  // Typing an exact weight: the number is selected on tap, and Return confirms it.
+  document.addEventListener('focusin', (ev) => { const t = ev.target; if (t && t.classList && t.classList.contains('val__in')) setTimeout(() => { try { t.select(); } catch (e) {} }, 0); });
   document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && ev.target && ev.target.classList && ev.target.classList.contains('val__in')) { ev.preventDefault(); ev.target.blur(); return; }
     if (ev.key === 'Enter' && ev.target && ev.target.dataset && ev.target.dataset.enter && !ev.isComposing) {
       const fn = App.ACT[ev.target.dataset.enter]; if (fn) { ev.preventDefault(); fn(ev.target, ev); }
     }
@@ -193,7 +226,7 @@
       App.Coach.topic(el.dataset.v, el.dataset.label); E.track('coach:' + el.dataset.v);
     },
     coachSend(el) {
-      const box = el.closest && el.closest('[data-composer]'); const inp = box ? box.querySelector('input') : el;
+      const box = el.closest && el.closest('[data-composer]'); const inp = box ? box.querySelector('input:not([type="file"])') : el;
       const v = (inp && inp.value || '').trim(); if (!v) { if (inp && inp.focus) inp.focus(); return; }
       inp.value = ''; App.Coach.send(v);
     },
@@ -220,7 +253,36 @@
       const n = E.streakWeeks();
       App.openLayer('<div class="dialog"><div class="dialog__icon" style="background:var(--red-soft);color:var(--red-text)">' + App.icon('flame') + '</div><h2 class="dialog__title">' + n + ' ' + App.plural(n, 'week') + ' on target</h2><p class="dialog__text">Your streak counts weeks where you did every planned session. It’s weekly on purpose: rest days never break it.</p><button class="btn" data-act="closeLayer">Got it</button></div>', { dialog: true });
     },
-    openLibrary() { App.Views.librarySheet(); },
+    openLibrary() { E.track('library'); App.Views.librarySheet(); },
+    libArea(el) { App.Views.lib.area = el.dataset.v; App.haptic(); App.Views.renderLib(true); },
+    libHere() { App.Views.lib.here = !App.Views.lib.here; App.haptic(); App.Views.renderLib(true); },
+    swapInAsk(el) { App.Views.swapInSheet(el.dataset.v); },
+    swapIn(el) {
+      const [base, id] = el.dataset.v.split('|'); const was = S().swaps[base] || base;
+      if (id === base) delete S().swaps[base]; else S().swaps[base] = id;
+      App.save(); App.closeLayer(true); App.render(); App.sound('set'); App.haptic('success');
+      App.toast(D.EX[id].name + ' is in, instead of the ' + App.lc(D.EX[was].name), 'swap');
+    },
+    openKit() { App.Views.kitSheet(); },
+    kitToggle(el) {
+      const g = E.gym(); const t = el.dataset.v; const i = g.kit.indexOf(t);
+      if (i >= 0) g.kit.splice(i, 1); else g.kit.push(t);
+      g.edited = true; App.haptic(); App.sound('tick');
+      const changed = E.fixPlanForKit();
+      App.save(); App.Views.kitSheet(true);
+      if (changed.length) { App.toast('Plan updated: ' + App.lc(D.EX[changed[0][1]].name) + (changed.length > 1 ? ' and ' + (changed.length - 1) + ' more' : '') + ' swapped in', 'swap'); changed.forEach((c) => App.Coach.note(D.EX[c[0]].name + ' swapped for ' + App.lc(D.EX[c[1]].name))); }
+    },
+    kitHas(el) {
+      const [tags, id] = el.dataset.v.split('|'); const g = E.gym();
+      tags.split(',').forEach((t) => { if (t && !g.kit.includes(t)) g.kit.push(t); });
+      g.edited = true; App.save(); App.sound('set'); App.haptic('success');
+      App.closeLayer(true); App.Views.exerciseSheet(id); App.toast('Added to ' + E.gymShort(), 'check');
+    },
+    chatPhoto(el) {
+      const f = el.files && el.files[0]; if (!f) return;
+      if (App.tab !== 'coach' && !App.$('.sheet [data-coach-thread]')) goTab('coach');
+      App.Coach.photoIn(f, el.dataset.v || ''); el.value = '';
+    },
     openExercise(el) { E.track('ex:' + el.dataset.v); App.Views.exerciseSheet(el.dataset.v); },
     openGym() { App.Views.gymSheet(); },
     openPack() { App.Views.packSheet(); },
@@ -326,6 +388,7 @@
   });
   Object.assign(App.IN, {
     search(el) { App.Views.renderSearch(el.value); },
+    libQ(el) { App.Views.lib.q = el.value; App.Views.renderLib(); },
     reward(el) { S().rewards = Object.assign({}, S().rewards || D.DEFAULT_REWARDS); S().rewards[el.dataset.w] = el.value; App.save(); },
   });
 
@@ -342,12 +405,15 @@
     const past = s.plan.slots.filter((x) => x.date < t);
     past.forEach((slot, i) => {
       if (i === past.length - 1 && past.length > 2) return; // leave the latest one missed, to show catching up
+      const prs = [];
       const exs = E.exercisesFor(slot.key, slot.week).map((e) => {
-        const ex = D.EX[e.id]; const sg = E.suggest(e.id);
-        const sets = []; for (let k = 0; k < e.sets; k++) sets.push({ w: sg.w, r: ex.unit === 'kg' ? Math.min(ex.reps[1], sg.r + (k === 0 ? 2 : 1)) : sg.r });
-        return { id: e.id, sets, effort: i % 3 === 2 ? 'right' : 'easy' };
+        const ex = D.EX[e.id]; const sg = E.suggest(e.id, null, e); const reps = e.reps || ex.reps;
+        const sets = []; for (let k = 0; k < e.sets; k++) sets.push({ w: sg.w, r: ex.unit === 'kg' ? Math.min(reps[1], sg.r + (k === 0 ? 2 : 1)) : sg.r });
+        const pr = sets.map((x, k) => E.prFor(e.id, x, sets.slice(0, k))).find(Boolean);
+        if (pr) { const x = sets.find((y, k) => E.prFor(e.id, y, sets.slice(0, k))); prs.push(Object.assign({ id: e.id, w: x.w, r: x.r }, pr)); }
+        return { id: e.id, sets, effort: i % 3 === 2 ? 'right' : 'easy', reps };
       });
-      s.log.push({ id: App.uid(), slot: slot.id, key: slot.key, week: slot.week, date: slot.date, mins: s.plan.mins - 3 + (i % 5), gymId: s.plan.gymId, ex: exs, mood: i % 2 ? 'great' : 'good' });
+      s.log.push({ id: App.uid(), slot: slot.id, key: slot.key, week: slot.week, date: slot.date, mins: s.plan.mins - 3 + (i % 5), gymId: s.plan.gymId, ex: exs, prs, mood: i % 2 ? 'great' : 'good' });
     });
     for (let i = 1; i <= 13; i++) {
       const d = addDays(t, -i); if (d < s.plan.start) break;

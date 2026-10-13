@@ -10,7 +10,11 @@
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const plural = (n, one, many) => (n === 1 ? one : (many || one + 's'));
   const sum = (arr) => arr.reduce((a, b) => a + b, 0);
-  const fmtKg = (n) => (Math.round(n * 10) / 10).toString();
+  const fmtKg = (n) => (Math.round(n * 100) / 100).toString();
+  const cap = (s) => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
+  // For a name mid-sentence: "Barbell row" → "barbell row", but "EZ-bar curl", "TRX row" and
+  // proper names after the first word ("dumbbell Romanian deadlift") keep their capitals.
+  const lc = (s) => { s = String(s || ''); return /^[A-Z][a-z]/.test(s) && !/^(Smith|Romanian|Bulgarian|Arnold|Pallof|Turkish|Nordic|Meadows|Russian)\b/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s; };
   const reduceMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -156,6 +160,7 @@
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5"/><path d="M12 7.5V12l3 2"/>',
     person: '<circle cx="12" cy="8" r="3.75"/><path d="M4.5 20c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/>',
     timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 2.5h5"/>',
+    home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>',
   };
   function icon(name, cls) {
     return '<svg class="' + (cls || 'ic') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (P[name] || P.info) + '</svg>';
@@ -180,24 +185,76 @@
     dumbbell: '<path d="M6 56h52"/><path d="M14 24v18M50 24v18" stroke-width="5"/><path d="M8 28v10M56 28v10" stroke-width="3.5"/><path d="M14 33h36" stroke-width="3.5"/>',
     cable: '<path d="M6 56h52"/><rect x="40" y="6" width="14" height="50" rx="2"/><circle cx="40" cy="48" r="3"/><path d="M40 48 20 44"/><path d="M14 40l6 4-6 5" stroke-width="3.5"/>',
     abcrunch: '<path d="M6 56h52"/><path d="M30 14v26" stroke-width="5"/><path d="M22 44h18" stroke-width="5"/><path d="M31 44v12"/><path d="M30 18c8 0 14 4 16 10"/><path d="M42 24v10" stroke-width="4"/>',
+    hack: '<path d="M6 56h52"/><path d="M12 56 30 8M20 56 38 8"/><path d="M22 44l8-22" stroke-width="5"/><path d="M28 18h9" stroke-width="4"/><path d="M34 54l16-6" stroke-width="5"/><path d="M44 51v5"/>',
+    rack: '<path d="M6 56h52"/><path d="M14 8v48M50 8v48"/><path d="M10 56h8M46 56h8"/><path d="M6 22h52" stroke-width="3"/><path d="M8 13v18M56 13v18" stroke-width="5"/><path d="M14 38h7M43 38h7" stroke-width="3.5"/>',
+    barbell: '<path d="M6 56h52"/><path d="M3 40h58" stroke-width="3"/><rect x="9" y="25" width="6" height="30" rx="2"/><rect x="49" y="25" width="6" height="30" rx="2"/><rect x="16" y="31" width="4" height="18" rx="1.5"/><rect x="44" y="31" width="4" height="18" rx="1.5"/>',
+    smith: '<path d="M6 56h52"/><path d="M12 6v50M52 6v50"/><path d="M8 6h48"/><path d="M8 26h48" stroke-width="3.5"/><path d="M18 21v10M46 21v10" stroke-width="4"/><path d="M20 48h24" stroke-width="5"/><path d="M26 48v8M38 48v8"/>',
+    bench: '<path d="M6 56h52"/><path d="M10 40h44" stroke-width="5"/><path d="M16 40v16M48 40v16"/><path d="M22 20v12M42 20v12" stroke-width="4.5"/><path d="M22 26h20" stroke-width="2.5"/>',
+    kettlebell: '<path d="M6 56h52"/><path d="M24 30c0-10 16-10 16 0" stroke-width="3.5"/><circle cx="32" cy="42" r="12.5"/><path d="M24 54h16" stroke-width="3"/>',
+    pullupbar: '<path d="M6 56h52"/><path d="M14 56V12M50 56V12"/><path d="M8 14h48" stroke-width="3.5"/><path d="M22 14v7M42 14v7" stroke-width="4"/><path d="M10 56h8M46 56h8"/>',
+    dips: '<path d="M6 56h52"/><path d="M16 56V24M48 56V24"/><path d="M8 24h16M40 24h16" stroke-width="4"/><path d="M32 8v38" stroke-width="5"/><path d="M26 56h12"/><path d="M24 34h16" stroke-width="3"/>',
+    backext: '<path d="M6 56h52"/><path d="M10 54 42 22"/><path d="M36 16l12 12" stroke-width="5"/><path d="M12 46l8 8" stroke-width="4"/><path d="M42 22v34"/><path d="M14 56h36"/>',
+    calf: '<path d="M6 56h52"/><rect x="44" y="8" width="10" height="48" rx="2"/><path d="M20 18h24" stroke-width="5"/><path d="M28 18v7"/><path d="M16 50h22" stroke-width="5"/><path d="M27 50v6"/>',
+    rower: '<path d="M6 56h52"/><path d="M8 50h42" stroke-width="3"/><circle cx="50" cy="40" r="9"/><circle cx="50" cy="40" r="3"/><path d="M18 46h12" stroke-width="5"/><path d="M42 42l-3 8"/><path d="M38 34H30" stroke-width="3.5"/><path d="M10 50v6"/>',
+    stairs: '<path d="M6 56h52"/><path d="M10 56v-8h10v-8h10v-8h10v-8h10v32"/><path d="M50 24V8h-12"/><path d="M38 8v8"/>',
+    sled: '<path d="M6 56h52"/><path d="M10 54h38c4 0 6-2 8-6"/><path d="M20 54V20M34 54V20" stroke-width="4"/><path d="M14 44h26" stroke-width="5"/><path d="M16 20h8M30 20h8" stroke-width="3"/>',
+    ropes: '<path d="M6 56h52"/><circle cx="52" cy="48" r="5"/><path d="M8 28c5-7 9 7 14 0s9 7 14 0 9 9 12 16" stroke-width="3"/><path d="M8 40c5-7 9 7 14 0s9 7 14 0 8 6 12 8" stroke-width="3"/>',
+    trx: '<path d="M6 56h52"/><path d="M26 4h12"/><path d="M32 4v6"/><path d="M32 10 22 40M32 10l10 30" stroke-width="2.5"/><path d="M17 41h10M37 41h10" stroke-width="4"/>',
+    landmine: '<path d="M6 56h52"/><path d="M10 52 50 24" stroke-width="3"/><path d="M6 50h8v6H6z"/><path d="M44 16l12 16" stroke-width="5"/><path d="M40 20l10 13" stroke-width="3.5"/>',
+    trapbar: '<path d="M6 56h52"/><path d="M3 40h12M49 40h12" stroke-width="3"/><path d="M15 40l6-10h22l6 10-6 10H21z"/><path d="M26 35v10M38 35v10" stroke-width="3.5"/><rect x="5" y="30" width="5" height="20" rx="1.5"/><rect x="54" y="30" width="5" height="20" rx="1.5"/>',
   };
   function art(name, cls) {
     return '<svg class="' + (cls || '') + '" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (A[name] || A.dumbbell) + '</svg>';
   }
 
-  // ── Rings (weekly goals) ──────────────────────────────────────────────────
-  // rings: [{pct, cls}] outer first. Drawn at 0 and animated to their value after render.
-  function rings(list, size, stroke) {
-    size = size || 120; stroke = stroke || 13;
-    const gap = 3; let r = size / 2 - stroke / 2;
-    let h = '<svg class="rings" viewBox="0 0 ' + size + ' ' + size + '" width="' + size + '" height="' + size + '" aria-hidden="true">';
-    list.forEach((g) => {
-      const C = 2 * Math.PI * r; const pct = clamp(g.pct, 0, 1);
-      h += '<circle class="rings__track ' + g.cls + '" cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" stroke-width="' + stroke + '"/>' +
-        '<circle class="rings__bar ' + g.cls + '" cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" stroke-width="' + stroke + '" stroke-dasharray="' + C.toFixed(2) + '" stroke-dashoffset="' + C.toFixed(2) + '" data-to="' + (C * (1 - pct)).toFixed(2) + '" transform="rotate(-90 ' + size / 2 + ' ' + size / 2 + ')"/>';
-      r -= stroke + gap;
-    });
-    return h + '</svg>';
+  // ── The week as a barbell ────────────────────────────────────────────────
+  // Training plates load onto the left sleeve, good food days onto the right. A
+  // week where both sides are full locks the collars and the bar lifts.
+  // from: {t, e} plates already shown, so only new plates slide on.
+  function bar(o) {
+    const tMax = Math.max(1, o.trainMax || 2), eMax = o.eatMax || 5;
+    const t = Math.min(o.train || 0, tMax), e = Math.min(o.eat || 0, eMax);
+    const from = o.from || { t: 0, e: 0 };
+    const W = 320, H = 104, cy = 52;
+    const perfect = t >= tMax && e >= eMax;
+    let s = '<svg class="bar' + (perfect ? ' is-perfect' : '') + (o.cls ? ' ' + o.cls : '') + '" viewBox="0 0 ' + W + ' ' + H + '"' + (o.label ? ' role="img" aria-label="' + esc(o.label) + '"' : ' aria-hidden="true"') + '><g class="bar__lift">';
+    s += '<rect class="bar__sleeve" x="12" y="' + (cy - 5) + '" width="82" height="10" rx="5"/>';
+    s += '<rect class="bar__sleeve" x="226" y="' + (cy - 5) + '" width="82" height="10" rx="5"/>';
+    s += '<rect class="bar__shaft" x="94" y="' + (cy - 3) + '" width="132" height="6" rx="3"/>';
+    for (let x = 124; x <= 198; x += 6) s += '<line class="bar__knurl" x1="' + x + '" y1="' + (cy - 2.5) + '" x2="' + (x - 3) + '" y2="' + (cy + 2.5) + '"/>';
+    s += '<rect class="bar__collar" x="87" y="' + (cy - 13) + '" width="8" height="26" rx="2.5"/>';
+    s += '<rect class="bar__collar" x="225" y="' + (cy - 13) + '" width="8" height="26" rx="2.5"/>';
+    // training plates: tall, fill the left sleeve from the collar out
+    const pw = Math.max(7, Math.min(16, Math.floor((66 - (tMax - 1) * 3) / tMax)));
+    let lastT = 87;
+    for (let i = 0; i < tMax; i++) {
+      const x = 84 - (i + 1) * pw - i * 3; const h = 84; const on = i < Math.floor(t);
+      if (on) lastT = x;
+      s += '<rect class="bar__plate p-train' + (on ? ' is-on' + (i >= Math.floor(from.t) ? ' is-new' : '') : '') + '" style="--i:' + (i - Math.floor(from.t)) + '" x="' + x + '" y="' + (cy - h / 2) + '" width="' + pw + '" height="' + h + '" rx="3"/>';
+    }
+    // food plates: one per good day, a half-tone plate for "partly"
+    const fw = 9; let lastE = 233;
+    for (let i = 0; i < eMax; i++) {
+      const x = 236 + i * (fw + 3); const h = 68; const full = i < Math.floor(e); const half = !full && i < e;
+      if (full || half) lastE = x + fw;
+      const fresh = (full && i >= Math.floor(from.e)) || (half && (from.e <= i || from.e % 1 === 0));
+      s += '<rect class="bar__plate p-eat' + (full ? ' is-on' : half ? ' is-half' : '') + (fresh ? ' is-new' : '') + '" style="--i:' + (i - Math.floor(from.e)) + '" x="' + x + '" y="' + (cy - h / 2) + '" width="' + fw + '" height="' + h + '" rx="3"/>';
+    }
+    // outer collars lock a full bar
+    if (perfect) {
+      s += '<rect class="bar__lock" x="' + (lastT - 9) + '" y="' + (cy - 9) + '" width="7" height="18" rx="2"/>';
+      s += '<rect class="bar__lock" x="' + (lastE + 2) + '" y="' + (cy - 9) + '" width="7" height="18" rx="2"/>';
+    }
+    return s + '</g></svg>';
+  }
+  // The Spotter mark: a small barbell, training plates orange, food plates green.
+  function mark(mono) {
+    const a = mono ? 'currentColor' : 'var(--accent)'; const g = mono ? 'currentColor' : 'var(--green)';
+    return '<svg class="mark" viewBox="0 0 32 32" aria-hidden="true">' +
+      '<rect x="2" y="14.6" width="28" height="2.8" rx="1.4" fill="currentColor"/>' +
+      '<rect x="5.5" y="7" width="4.6" height="18" rx="1.6" fill="' + a + '"/><rect x="11" y="9.5" width="3.2" height="13" rx="1.3" fill="' + a + '"/>' +
+      '<rect x="21.9" y="7" width="4.6" height="18" rx="1.6" fill="' + g + '"/><rect x="17.8" y="9.5" width="3.2" height="13" rx="1.3" fill="' + g + '"/>' +
+      '</svg>';
   }
 
   // ── Award medals ──────────────────────────────────────────────────────────
@@ -418,14 +475,29 @@
     } catch (e) { wake = null; }
   }
 
+  // Shrink a photo to a small JPEG data URL, so it can be kept on the phone.
+  function thumb(file, max, q) {
+    return new Promise((resolve, reject) => {
+      const img = new Image(); const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, (max || 900) / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url); resolve(c.toDataURL('image/jpeg', q || 0.72));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('unreadable')); };
+      img.src = url;
+    });
+  }
+
   const App = (window.App = window.App || {});
   App.ACT = App.ACT || {};
   App.IN = App.IN || {};
   Object.assign(App, {
-    $, $$, esc, clamp, uid, plural, sum, fmtKg, reduceMotion,
+    $, $$, esc, clamp, uid, plural, sum, fmtKg, cap, lc, reduceMotion, thumb,
     fresh, load, save, saveNow, KEY,
     now, nowMs, iso, parse, today, addDays, dow, weekStart, diffDays, fmtDate, rel, relLow, hour, timeAgo, DOW, DOW_LONG, MON,
-    icon, art, rings, medal,
+    icon, art, bar, mark, medal,
     openLayer, sheet, closeLayer, topLayer, replaceSheet, toast,
     sound, haptic, fxInit, shimmer, celebrateFx: celebrate, countUp, applyTheme, keepAwake,
   });
