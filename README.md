@@ -165,10 +165,10 @@ worked out from the sessions they've logged.
 
 The app is plain HTML, CSS and JavaScript in `spotter/`. There is no build step.
 
-- **GitHub Pages:** `.github/workflows/pages.yml` publishes `spotter/` whenever `main`
-  changes. One-time setup: repo **Settings → Pages → Build and deployment → Source:
-  GitHub Actions**. The site then lives at
-  `https://mahannoorii.github.io/Calorie-Counting-App/`.
+- **GitHub Pages:** Pages for this repo publishes straight from `main`, so once this is merged
+  Spotter is at `https://mahannoorii.github.io/Calorie-Counting-App/spotter/` (the site's root
+  forwards there). Nothing else to set up. `.github/workflows/pages.yml` is only for a later
+  switch to **Source: GitHub Actions**, which would put Spotter at the root instead.
 - **Run it locally:** `python3 -m http.server 8080 --directory spotter`, then open
   <http://localhost:8080>.
 - **claude.ai preview:** `python3 tools/build_preview.py` bundles everything into one page
