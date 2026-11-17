@@ -68,7 +68,7 @@
   function slotLine(sl) {
     const E = App.E; const d = E.slotDate(sl); const st = E.isDone(sl) ? 'done' : E.isSkipped(sl) ? 'skipped' : d < today() ? 'missed' : 'planned';
     const extra = [S().trims[sl.id] ? 'cut to ' + S().trims[sl.id] + ' exercises' : '', S().eases[sl.id] ? 'eased (' + S().eases[sl.id] + ')' : '', S().moves[sl.id] ? 'moved from ' + fmtDate(sl.date, 'short') : ''].filter(Boolean).join(', ');
-    return '- ' + fmtDate(d, 'short') + ': ' + E.sessionName(sl) + ' [session_id ' + sl.id + '] ' + st + (extra ? ' (' + extra + ')' : '');
+    return '- ' + fmtDate(d, 'short') + ': ' + E.sessionName(sl) + ' [session_id ' + sl.id + ', session_key ' + sl.key + '] ' + st + (extra ? ' (' + extra + ')' : '');
   }
   // A plain-text snapshot of everything the coach needs. Deterministic for the same data, so
   // the prompt cache holds between messages.
@@ -85,17 +85,28 @@
     if (p.focus && p.focus.length) L.push('Wants to bring up: ' + p.focus.join(', '));
     if (p.health) L.push('Asthma: ' + (p.health.asthma ? 'yes (reliever puffer)' : 'no') + (p.health.flag ? '. Flagged a health question' + (p.health.cleared ? ', cleared by GP' : ', not yet cleared by a GP') : ''));
     if (p.cuisines && p.cuisines.length) L.push('Food they eat: ' + p.cuisines.map((c) => (D.CUISINES.find((x) => x.id === c) || {}).name || c).join(', '));
+    sec('Your notes about them (kept between chats; numbered for forget_note)');
+    const notes = s.coachNotes || [];
+    if (notes.length) notes.forEach((n, i) => L.push((i + 1) + '. ' + n.text + ' (noted ' + App.iso(new Date(n.at)) + ')')); else L.push('None yet.');
     if (plan) {
       sec('Gym');
       const g = E.gym();
       L.push((g ? g.name : 'Unknown gym') + '. Equipment: ' + (g && g.kit ? g.kit.map((k) => D.EQUIP_NAME[k] || k).join(', ') : 'unknown') + '.');
       sec('Program');
       L.push((plan.own ? 'Their own program' + (p.program && p.program.source ? ', carried over from ' + p.program.source : '') : (E.SPLITS[plan.split] || {}).name || plan.split) + '. Trains ' + plan.days.map((d) => DOW_LONG[d]).join(', ') + ', about ' + plan.mins + ' min. Plan runs ' + plan.start + ' to ' + plan.end + ' (' + plan.weeks + ' weeks).' + (plan.deload ? ' Every 4th week is lighter.' : '') + (plan.event ? ' Working towards ' + plan.event.name + ' on ' + plan.event.date + '.' : ''));
-      (plan.order || Object.keys(plan.sessions)).forEach((k) => {
+      const ph = E.phaseFor(curWeek(plan), plan); L.push('This week\'s phase: ' + ph.name + '. ' + ph.note);
+      L.push('Rotation: ' + plan.order.map((k) => (plan.sessions[k] ? plan.sessions[k].name : k) + ' [' + k + ']').join(' → '));
+      sec('Sessions (session_key, name, then each exercise as it stands)');
+      const used = new Set(plan.order); plan.slots.forEach((sl) => { if (E.slotDate(sl) >= addDays(t, -14)) used.add(sl.key); });
+      Object.keys(plan.sessions).filter((k) => used.has(k)).forEach((k) => {
         const ss = plan.sessions[k];
-        L.push('- ' + ss.name + ' (' + (ss.title || '') + '): ' + E.exercisesFor(k, 1).map((x) => exName(x.id) + ' [' + x.id + '] ' + x.sets + '×' + (x.reps ? x.reps.join('–') : (D.EX[x.id].reps || []).join('–'))).join('; '));
+        L.push('- [' + k + '] ' + ss.name + (ss.title ? ' (' + ss.title + ')' : '') + (plan.order.includes(k) ? '' : ', a one-off, not in the rotation') + ':');
+        const rot = plan.rotate && Math.floor((curWeek(plan) - 1) / 4) % 2 === 1;
+        (ss.items || (ss.ex || []).map((id) => ({ id }))).forEach((it) => {
+          const base = rot && it.alt ? it.alt : it.id; const id = s.swaps[base] || base; const ex = D.EX[id] || {};
+          L.push('    ' + exName(id) + ' [' + id + '] ' + (it.sets || 3) + ' sets × ' + (it.reps || ex.reps || []).join('–') + (ex.unit === 'sec' ? ' s' : '') + (it.rest ? ', rest ' + it.rest + ' s' : '') + (it.cap ? ', max ' + kg(it.cap) + ' kg' : '') + (it.note ? ', note: ' + it.note : '') + (it.pair ? ', superset ' + it.pair + it.pairRole : ''));
+        });
       });
-      const swaps = Object.keys(s.swaps || {}); if (swaps.length) L.push('Swaps they made: ' + swaps.map((b) => exName(b) + ' → ' + exName(s.swaps[b])).join('; '));
       sec('Schedule (session ids for tools)');
       E.allSlots().concat(plan.slots.filter((x) => E.isSkipped(x))).filter((sl) => { const d = E.slotDate(sl); return d >= addDays(t, -10) && d <= addDays(t, 14); })
         .sort((a, b) => (E.slotDate(a) < E.slotDate(b) ? -1 : 1)).forEach((sl) => L.push(slotLine(sl)));
@@ -139,11 +150,12 @@
     L.push('Restaurant cuisines the app has menus for: ' + Object.keys(D.MENUS).join(', ') + '.');
     return L.join('\n');
   }
+  function curWeek(plan) { return Math.max(1, Math.floor(App.diffDays(App.weekStart(plan.start), today()) / 7) + 1); }
   function nowLine() {
     const d = new Date(App.nowMs()); const h = d.getHours(); const m = String(d.getMinutes()).padStart(2, '0');
     const ss = App.Coach.sessionContext && App.Coach.sessionContext();
     let where = '';
-    if (ss && ss.exId) { const sg = App.E.suggest(ss.exId, ss.slot); where = ' They are in the gym mid-session, on the ' + exName(ss.exId) + ' [' + ss.exId + ']. The app is suggesting ' + sg.title + ' (' + sg.why + ').'; }
+    if (ss && ss.exId) { const sg = App.E.suggest(ss.exId, ss.slot, App.Session.stepFor(ss.exId) || undefined); where = ' They are in the gym mid-session, on the ' + exName(ss.exId) + ' [' + ss.exId + ']. The app is suggesting ' + sg.title + ' (' + sg.why + ').'; }
     return 'Now: ' + DOW_LONG[dow(today())] + ' ' + fmtDate(today(), 'dm') + ', ' + ((h % 12) || 12) + ':' + m + (h < 12 ? ' am' : ' pm') + '.' + where;
   }
 
@@ -164,10 +176,14 @@
     '- Only suggest exercises their gym can do. Use search_exercises to find them and use the ids it returns.',
     '',
     'Doing things:',
-    '- You can change their plan with your tools. When they ask for a change, or clearly agree to one you offered, do it, then say in one line what you changed. Don\'t ask permission for something they just asked for.',
-    '- Never change the plan just because it seems like a good idea. Offer it and wait for a yes.',
-    '- Use the session ids from the schedule. Dates are YYYY-MM-DD.',
-    '- For deeper history on one lift, call get_exercise_history.',
+    '- You can reshape their whole program with your tools: rename sessions; change a session\'s exercises, order, sets, reps and rest; put a weight cap or a note on an exercise; add or remove sessions; change training days, the rotation and how long the plan runs; add custom exercises; update the gym\'s equipment. You can also move, skip, ease or shorten single days, set next-time targets and log food.',
+    '- When they ask for a change, or tell you about their situation (an injury, a physio\'s advice, a new schedule, different equipment, a goal) and want the plan to suit it, make every change needed in one go, then summarise what changed in a few short lines. An Undo button appears under your message automatically, so don\'t ask permission for something they asked for.',
+    '- If something is only mentioned in passing, suggest the change and wait for a yes.',
+    '- update_session changes a session for every week it appears; add only_session_id to change just that one day. Its exercises list replaces the old list completely, so include every exercise to keep, in order.',
+    '- set_schedule changes days, rotation and plan length from a date on. Sessions already done are never touched.',
+    '- Keep notes with remember_note about anything that should shape future coaching (injuries, physio or GP advice, limits, preferences). Your notes are in the data below; when something changes, forget the old note and save a new one.',
+    '- Use the session ids and session keys from the data. Dates are YYYY-MM-DD. For deeper history on one lift, call get_exercise_history.',
+    '- With an injury, be conservative: follow any physio or GP advice they mention, leave out what aggravates it, cap weights with max_kg where it helps, and keep their physio in the loop. You are not a physio and never diagnose.',
     '',
     'Safety:',
     '- General fitness and healthy-eating guidance only. Never diagnose, never prescribe medication or supplements, and don\'t set calorie targets.',
@@ -187,13 +203,88 @@
     { name: 'set_next_target', description: 'Set the weight and reps the app will suggest next time they do an exercise (replaces the automatic suggestion once).', input_schema: { type: 'object', properties: { exercise_id: str('Exercise id'), weight_kg: { type: 'number', description: 'Weight in kg (0 for bodyweight; kg of help for assisted machines)' }, reps: { type: 'integer', description: 'Target reps (or seconds for holds)' }, why: str('Short reason shown to them, under 12 words') }, required: ['exercise_id', 'weight_kg', 'reps', 'why'] } },
     { name: 'log_food', description: 'Log how eating went on a day.', input_schema: { type: 'object', properties: { date: str('YYYY-MM-DD, usually today'), rating: { type: 'string', enum: ['on', 'part', 'off'] } }, required: ['date', 'rating'] } },
     { name: 'show_restaurant_picks', description: 'Put the app\'s menu card for a restaurant on screen: three picks with what to ask for, which they can lock in. Use when they say where they are eating.', input_schema: { type: 'object', properties: { restaurant: str('Restaurant name as they said it'), cuisine: { type: 'string', enum: Object.keys(D.MENUS) } }, required: ['restaurant', 'cuisine'] } },
+    { name: 'update_session', description: 'Change a session: its name, its subtitle, and/or its full list of exercises (each with sets, reps, rest, optional weight cap and note). Applies to every week it appears unless only_session_id is given, in which case only that one day changes.', input_schema: { type: 'object', properties: {
+      session_key: str('Session key from the data, e.g. L1 or push'),
+      only_session_id: str('Optional: a session id from the schedule to change just that day'),
+      name: str('New name, e.g. "Upper C"'),
+      title: str('New subtitle, e.g. "Chest, arms and shoulders"'),
+      exercises: { type: 'array', description: 'The complete new list, in order. Replaces the old list.', items: { type: 'object', properties: {
+        exercise_id: str('From the data or search_exercises'), sets: { type: 'integer' }, reps_min: { type: 'integer' }, reps_max: { type: 'integer' },
+        rest_seconds: { type: 'integer' }, max_kg: { type: 'number', description: 'Optional weight cap the app will never suggest above' }, note: str('Optional short note shown during the session, e.g. "Physio: slow and controlled"'),
+      }, required: ['exercise_id', 'sets', 'reps_min', 'reps_max'] } },
+    }, required: ['session_key'] } },
+    { name: 'update_all_sessions', description: 'Apply one change to every exercise in every session: number of sets and/or rest time.', input_schema: { type: 'object', properties: { sets: { type: 'integer' }, rest_seconds: { type: 'integer' } } } },
+    { name: 'add_session', description: 'Create a new session. Add it to the rotation (and choose where) or keep it for set_schedule or a one-off day.', input_schema: { type: 'object', properties: {
+      name: str('e.g. "Legs (physio-approved)"'), title: str('Subtitle, e.g. "Hamstrings and quads"'),
+      exercises: { type: 'array', items: { type: 'object', properties: { exercise_id: str('id'), sets: { type: 'integer' }, reps_min: { type: 'integer' }, reps_max: { type: 'integer' }, rest_seconds: { type: 'integer' }, max_kg: { type: 'number' }, note: str('note') }, required: ['exercise_id', 'sets', 'reps_min', 'reps_max'] } },
+      add_to_rotation: { type: 'boolean', description: 'Default true' }, rotation_position: { type: 'integer', description: '0-based position in the rotation; default the end' },
+    }, required: ['name', 'exercises'] } },
+    { name: 'remove_session', description: 'Take a session out of the rotation. Upcoming days are re-planned with the remaining sessions; history is kept.', input_schema: { type: 'object', properties: { session_key: str('Session key') }, required: ['session_key'] } },
+    { name: 'set_schedule', description: 'Re-plan upcoming days from a date: which weekdays they train, the order sessions rotate in, which session comes first, and when the plan ends (to extend or shorten it). Done sessions are never touched.', input_schema: { type: 'object', properties: {
+      training_days: { type: 'array', items: { type: 'string', enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] } },
+      rotation: { type: 'array', items: { type: 'string' }, description: 'Session keys in order' },
+      start_with: str('Session key for the first upcoming day; default: the one after the last session they did'),
+      from_date: str('YYYY-MM-DD, default today'), end_date: str('YYYY-MM-DD, when the plan ends'),
+    } } },
+    { name: 'add_custom_exercise', description: 'Add an exercise the library doesn\'t have, based on the closest library exercise (it borrows its equipment, cues and drawing). Returns the new exercise id.', input_schema: { type: 'object', properties: { name: str('e.g. "Single-arm cable row"'), based_on_exercise_id: str('Closest library exercise') }, required: ['name', 'based_on_exercise_id'] } },
+    { name: 'update_gym_equipment', description: 'Add or remove equipment at their gym, using equipment keys from list_equipment.', input_schema: { type: 'object', properties: { add: { type: 'array', items: { type: 'string' } }, remove: { type: 'array', items: { type: 'string' } } } } },
+    { name: 'list_equipment', description: 'All equipment keys the app knows, with names, and whether their gym has each.', input_schema: { type: 'object', properties: {} } },
+    { name: 'remember_note', description: 'Save a note that shapes future coaching: an injury, physio or GP advice, a limit, a preference. Kept between chats.', input_schema: { type: 'object', properties: { note: str('One clear sentence, e.g. "Sciatica (Nov 2026): physio says no deadlifts or heavy squats; leg curl max 45 kg."') }, required: ['note'] } },
+    { name: 'forget_note', description: 'Remove one of your notes by its number.', input_schema: { type: 'object', properties: { number: { type: 'integer' } }, required: ['number'] } },
   ].map((t) => Object.assign(t, { eager_input_streaming: true }));
+  // Tools that change things, so their effects can be undone together.
+  const MUTATES = new Set(['move_session', 'skip_session', 'adjust_session', 'swap_exercise', 'set_next_target', 'log_food', 'update_session', 'update_all_sessions', 'add_session', 'remove_session', 'set_schedule', 'add_custom_exercise', 'update_gym_equipment', 'remember_note', 'forget_note']);
+  const UNDO_KEYS = ['plan', 'swaps', 'moves', 'skips', 'trims', 'eases', 'targets', 'customEx', 'coachNotes', 'food'];
+  function takeUndo() {
+    const s = S(); const p = s.profile || {}; const snap = {};
+    UNDO_KEYS.forEach((k) => { snap[k] = s[k] === undefined ? null : s[k]; });
+    snap.profile = { days: p.days, perWeek: p.perWeek, kit: p.gym ? p.gym.kit : null };
+    s.aiUndo = { at: App.nowMs(), data: JSON.stringify(snap) };
+  }
+  function undo() {
+    const s = S(); if (!s.aiUndo) return false;
+    const snap = JSON.parse(s.aiUndo.data);
+    UNDO_KEYS.forEach((k) => { if (snap[k] === null) delete s[k]; else s[k] = snap[k]; });
+    if (s.profile) { s.profile.days = snap.profile.days; s.profile.perWeek = snap.profile.perWeek; if (s.profile.gym && snap.profile.kit) s.profile.gym.kit = snap.profile.kit; }
+    if (App.Import) App.Import.register(s.customEx || {});
+    delete s.aiUndo; App.saveNow();
+    return true;
+  }
 
   const isStr = (x) => typeof x === 'string' && x.trim().length > 0;
-  const isDate = (x) => isStr(x) && /^\d{4}-\d{2}-\d{2}$/.test(x);
+  const isDate = (x) => isStr(x) && /^\d{4}-\d{2}-\d{2}$/.test(x) && App.iso(App.parse(x)) === x;
   function slotOrErr(id) { const sl = App.E.slotById(id); if (!sl) throw new Error('No session with id ' + id + '. Use an id from the schedule.'); return sl; }
   function exOrErr(id) { if (!isStr(id) || !D.EX[id]) throw new Error('Unknown exercise id ' + id + '. Use search_exercises.'); return D.EX[id]; }
   const changed = []; // what the tools did this message, for the screen to refresh
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  function sessOrErr(key) { const ss = isStr(key) && S().plan.sessions[key]; if (!ss) throw new Error('No session with key ' + key + '. Use a session_key from the data.'); return ss; }
+  // A session's exercise list from the tool's input, checked against the library and the gym.
+  function itemsFrom(list) {
+    if (!Array.isArray(list) || !list.length) throw new Error('exercises must be a non-empty list');
+    if (list.length > 14) throw new Error('At most 14 exercises in a session');
+    return list.map((x, i) => {
+      if (!x || typeof x !== 'object') throw new Error('Each exercise must be an object');
+      const ex = exOrErr(x.exercise_id);
+      if (!App.E.canDo(x.exercise_id)) throw new Error(ex.name + ' needs ' + App.E.missing(x.exercise_id).map((k) => D.EQUIP_NAME[k] || k).join(', ') + ', which their gym doesn\'t have on record. Pick another, or update_gym_equipment if they have it.');
+      const sets = Math.round(Number(x.sets)); let lo = Math.round(Number(x.reps_min)); let hi = Math.round(Number(x.reps_max));
+      if (!(sets >= 1 && sets <= 10)) throw new Error('sets must be 1 to 10 (' + ex.name + ')');
+      if (!(lo >= 1 && hi >= 1 && lo <= 300 && hi <= 300)) throw new Error('reps must be 1 to 300 (' + ex.name + ')');
+      if (lo > hi) { const t = lo; lo = hi; hi = t; }
+      const it = { id: x.exercise_id, pat: ex.pat, role: i === 0 ? 'main' : 'acc', sets, reps: [lo, hi], coach: true };
+      const rest = Math.round(Number(x.rest_seconds)); if (rest) { if (!(rest >= 15 && rest <= 600)) throw new Error('rest_seconds must be 15 to 600'); it.rest = rest; } else it.rest = ex.rest || 90;
+      if (x.max_kg != null && x.max_kg !== '') { const c = Number(x.max_kg); if (!(c > 0 && c < 1000)) throw new Error('max_kg must be a positive number'); it.cap = Math.round(c * 4) / 4; }
+      if (isStr(x.note)) it.note = String(x.note).trim().slice(0, 140);
+      return it;
+    });
+  }
+  function useItems(ss, items) {
+    // explicit choices win over older swaps of the same exercises
+    items.forEach((it) => { delete S().swaps[it.id]; });
+    ss.items = items; ss.ex = items.map((it) => it.id);
+  }
+  function tagFor(name) { const w = String(name).replace(/\(.*?\)/g, '').trim().split(/\s+/).filter(Boolean); return (w.length > 1 ? w[0][0] + w[1][0] : (w[0] || 'S')[0]).toUpperCase(); }
+  const short = (t, n) => { t = String(t).trim(); if (t.length <= n) return t; const cut = t.slice(0, n); return cut.slice(0, Math.max(cut.lastIndexOf(' '), n - 12)).replace(/[,;:.\s]+$/, '') + '…'; };
+  function reshaped() { S().plan.customised = true; }
 
   const RUN = {
     get_exercise_history(i) {
@@ -216,7 +307,7 @@
       const sl = slotOrErr(i.session_id); if (!isDate(i.new_date)) throw new Error('new_date must be YYYY-MM-DD');
       if (App.E.isDone(sl)) throw new Error('That session is already done.');
       if (i.new_date < today()) throw new Error('Can\'t move a session into the past.');
-      S().moves[sl.id] = i.new_date; changed.push('Moved ' + App.E.sessionName(sl) + ' to ' + fmtDate(i.new_date, 'long'));
+      S().moves[sl.id] = i.new_date; delete S().skips[sl.id]; changed.push('Moved ' + App.E.sessionName(sl) + ' to ' + fmtDate(i.new_date, 'long'));
       return 'Moved ' + App.E.sessionName(sl) + ' to ' + i.new_date + '.';
     },
     skip_session(i) {
@@ -234,7 +325,7 @@
       exOrErr(i.from_exercise_id); exOrErr(i.to_exercise_id);
       if (!App.E.canDo(i.to_exercise_id)) throw new Error(exName(i.to_exercise_id) + ' needs equipment their gym doesn\'t have.');
       const plan = S().plan; let base = null;
-      Object.keys(plan.sessions).forEach((k) => (plan.sessions[k].items || []).forEach((it) => { const cur = S().swaps[it.id] || it.id; if (it.id === i.from_exercise_id || cur === i.from_exercise_id) base = it.id; }));
+      Object.keys(plan.sessions).forEach((k) => (plan.sessions[k].items || []).forEach((it) => [it.id, it.alt].filter(Boolean).forEach((b) => { if (b === i.from_exercise_id || S().swaps[b] === i.from_exercise_id) base = b; })));
       if (!base) throw new Error(exName(i.from_exercise_id) + ' isn\'t in their plan.');
       if (base === i.to_exercise_id) delete S().swaps[base]; else S().swaps[base] = i.to_exercise_id;
       changed.push('Swapped ' + exName(i.from_exercise_id) + ' for ' + exName(i.to_exercise_id));
@@ -245,7 +336,7 @@
       const w = Number(i.weight_kg); const r = Math.round(Number(i.reps));
       if (!(w >= 0 && w < 1000) || !(r > 0 && r < 1000)) throw new Error('weight_kg and reps must be sensible numbers');
       S().targets = S().targets || {};
-      S().targets[i.exercise_id] = { w: Math.round(w * 4) / 4, r, why: String(i.why || '').slice(0, 90), n: S().log.length };
+      S().targets[i.exercise_id] = { w: Math.round(w * 4) / 4, r, why: String(i.why || '').slice(0, 90), n: S().log.length + (S().active ? 1 : 0) };
       changed.push('Next ' + ex.name + ': ' + (ex.unit === 'kg' ? kg(w) + ' kg × ' + r : r + (ex.unit === 'sec' ? ' s' : ' reps')));
       return 'Set. The app will suggest this next time.';
     },
@@ -254,6 +345,103 @@
       if (!['on', 'part', 'off'].includes(i.rating)) throw new Error('rating must be on, part or off');
       App.logFood(i.date, i.rating, true); changed.push('Logged eating ' + ({ on: 'on track', part: 'partly on track', off: 'off track' }[i.rating]) + ' for ' + fmtDate(i.date, 'short'));
       return 'Logged.';
+    },
+    update_session(i) {
+      const plan = S().plan; let ss = sessOrErr(i.session_key); let key = i.session_key; let one = null;
+      // check everything before changing anything
+      if (!isStr(i.name) && !isStr(i.title) && i.exercises == null) throw new Error('Nothing to change: give a name, title or exercises');
+      const items = i.exercises != null ? itemsFrom(i.exercises) : null;
+      if (i.only_session_id) {
+        one = slotOrErr(i.only_session_id); if (App.E.isDone(one)) throw new Error('That day is already done.');
+        key = 'x' + App.uid().slice(0, 6);
+        ss = Object.assign(JSON.parse(JSON.stringify(plan.sessions[one.key])), { key });
+        plan.sessions[key] = ss;
+      }
+      if (isStr(i.name)) { ss.name = String(i.name).trim().slice(0, 40); ss.tag = tagFor(ss.name); }
+      if (isStr(i.title)) ss.title = String(i.title).trim().slice(0, 60);
+      if (items) useItems(ss, items);
+      if (one) { one.key = key; delete S().trims[one.id]; }
+      reshaped();
+      changed.push((one ? fmtDate(App.E.slotDate(one), 'short') + ': ' : '') + 'Updated ' + ss.name + (i.exercises ? ' (' + ss.items.length + ' exercises)' : ''));
+      return 'Updated session ' + key + ': ' + ss.name + (ss.title ? ' (' + ss.title + ')' : '') + (one ? ', for ' + App.E.slotDate(one) + ' only' : ', every week') + '.';
+    },
+    update_all_sessions(i) {
+      const plan = S().plan; const sets = i.sets != null ? Math.round(Number(i.sets)) : null; const rest = i.rest_seconds != null ? Math.round(Number(i.rest_seconds)) : null;
+      if (sets == null && rest == null) throw new Error('Give sets and/or rest_seconds');
+      if (sets != null && !(sets >= 1 && sets <= 10)) throw new Error('sets must be 1 to 10');
+      if (rest != null && !(rest >= 15 && rest <= 600)) throw new Error('rest_seconds must be 15 to 600');
+      Object.keys(plan.sessions).forEach((k) => { const ss = plan.sessions[k]; (ss.items = ss.items || ss.ex.map((id) => ({ id, pat: (D.EX[id] || {}).pat, role: 'acc' }))).forEach((it) => { if (sets != null) { it.sets = sets; it.coach = true; } if (rest != null) it.rest = rest; }); });
+      reshaped(); changed.push('Every exercise: ' + [sets != null ? sets + ' sets' : '', rest != null ? rest + ' s rest' : ''].filter(Boolean).join(', '));
+      return 'Done for every session.';
+    },
+    add_session(i) {
+      const plan = S().plan; if (!isStr(i.name)) throw new Error('name is required');
+      const key = 'c' + App.uid().slice(0, 6); const items = itemsFrom(i.exercises);
+      const name = String(i.name).trim().slice(0, 40);
+      plan.sessions[key] = { key, name, tag: tagFor(name), area: 'own', title: isStr(i.title) ? String(i.title).trim().slice(0, 60) : '', ex: [], items: [] };
+      useItems(plan.sessions[key], items);
+      if (i.add_to_rotation !== false) { const pos = Number.isInteger(i.rotation_position) ? Math.max(0, Math.min(plan.order.length, i.rotation_position)) : plan.order.length; plan.order.splice(pos, 0, key); App.E.reschedule({}); }
+      reshaped(); changed.push('Added ' + name);
+      return 'Created session ' + key + ' (' + name + ')' + (i.add_to_rotation !== false ? ', added to the rotation and upcoming days re-planned.' : '. Not in the rotation yet.');
+    },
+    remove_session(i) {
+      const plan = S().plan; const ss = sessOrErr(i.session_key);
+      if (!plan.order.includes(i.session_key)) throw new Error('That session isn\'t in the rotation.');
+      if (plan.order.length < 2) throw new Error('It\'s the only session in the rotation. Add another first.');
+      plan.order = plan.order.filter((k) => k !== i.session_key); App.E.reschedule({});
+      reshaped(); changed.push('Took ' + ss.name + ' out of the rotation');
+      return 'Removed from the rotation; upcoming days re-planned with: ' + plan.order.map((k) => plan.sessions[k].name).join(', ') + '.';
+    },
+    set_schedule(i) {
+      const plan = S().plan; const o = {};
+      if (i.training_days != null) { if (!Array.isArray(i.training_days) || !i.training_days.length || i.training_days.some((d) => !DAYS.includes(d))) throw new Error('training_days must be weekdays like ["Mon","Wed","Fri"]'); o.days = [...new Set(i.training_days.map((d) => DAYS.indexOf(d)))]; }
+      if (i.rotation != null) { if (!Array.isArray(i.rotation) || !i.rotation.length) throw new Error('rotation must list session keys'); i.rotation.forEach(sessOrErr); o.order = i.rotation.slice(); }
+      if (i.start_with != null) { sessOrErr(i.start_with); o.startWith = i.start_with; }
+      if (i.from_date != null) { if (!isDate(i.from_date)) throw new Error('from_date must be YYYY-MM-DD'); o.from = i.from_date; }
+      if (i.end_date != null) { if (!isDate(i.end_date) || i.end_date < today()) throw new Error('end_date must be a future date, YYYY-MM-DD'); if (App.diffDays(today(), i.end_date) > 7 * 26) throw new Error('Plans run at most 26 weeks ahead'); o.end = i.end_date; }
+      if (!Object.keys(o).length) throw new Error('Nothing to change');
+      App.E.reschedule(o); reshaped();
+      const next = App.E.openSlots().filter((sl) => App.E.slotDate(sl) >= today()).slice(0, 6);
+      changed.push('Re-planned upcoming days' + (o.days ? ' (' + o.days.slice().sort((a, b) => a - b).map((d) => DAYS[d]).join(', ') + ')' : ''));
+      return 'Re-planned. Next up: ' + next.map((sl) => App.E.slotDate(sl) + ' ' + App.E.sessionName(sl)).join('; ') + '. Plan ends ' + plan.end + '.';
+    },
+    add_custom_exercise(i) {
+      if (!isStr(i.name)) throw new Error('name is required'); exOrErr(i.based_on_exercise_id);
+      const s = S(); s.customEx = s.customEx || {};
+      const id = 'c_' + String(i.name).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
+      if (D.EX[id] && !s.customEx[id]) throw new Error('The library already has ' + D.EX[id].name + ' [' + id + ']; use that.');
+      s.customEx[id] = { base: i.based_on_exercise_id, name: String(i.name).trim().slice(0, 60) };
+      App.Import.register(s.customEx);
+      changed.push('New exercise: ' + s.customEx[id].name);
+      return 'Created ' + id + ' (' + s.customEx[id].name + '), using the equipment of ' + exName(i.based_on_exercise_id) + '.';
+    },
+    list_equipment() {
+      const k = App.E.kit();
+      return Object.keys(D.EQUIP).map((g) => D.EQUIP[g].name + ': ' + Object.keys(D.EQUIP[g].items).map((key) => key + ' (' + D.EQUIP[g].items[key] + (k.has(key) ? ', has it' : '') + ')').join('; ')).join('\n');
+    },
+    update_gym_equipment(i) {
+      const g = App.E.gym(); if (!g) throw new Error('No gym set');
+      const add = Array.isArray(i.add) ? i.add : []; const rem = Array.isArray(i.remove) ? i.remove : [];
+      add.concat(rem).forEach((key) => { if (!D.EQUIP_NAME[key]) throw new Error('Unknown equipment key ' + key + '. Use list_equipment.'); });
+      add.forEach((key) => { if (!g.kit.includes(key)) g.kit.push(key); });
+      g.kit = g.kit.filter((key) => !rem.includes(key));
+      changed.push('Gym equipment updated');
+      return 'Gym now has: ' + g.kit.map((key) => D.EQUIP_NAME[key] || key).join(', ') + '.';
+    },
+    remember_note(i) {
+      if (!isStr(i.note)) throw new Error('note is required');
+      const s = S(); s.coachNotes = s.coachNotes || [];
+      if (s.coachNotes.length >= 40) throw new Error('Too many notes; forget an old one first');
+      s.coachNotes.push({ text: String(i.note).trim().slice(0, 300), at: App.nowMs() });
+      changed.push('Noted: ' + short(i.note, 80));
+      return 'Saved as note ' + s.coachNotes.length + '.';
+    },
+    forget_note(i) {
+      const s = S(); const n = Math.round(Number(i.number)); const list = s.coachNotes || [];
+      if (!(n >= 1 && n <= list.length)) throw new Error('No note number ' + i.number);
+      const gone = list.splice(n - 1, 1)[0];
+      changed.push('Forgot a note');
+      return 'Forgot: ' + gone.text;
     },
     show_restaurant_picks(i) {
       if (!isStr(i.restaurant) || !D.MENUS[i.cuisine]) throw new Error('restaurant and a listed cuisine are required');
@@ -304,7 +492,7 @@
   // Send the conversation to Claude and stream the answer into a coach bubble.
   // hooks: { start(), text(visibleSoFar), done({text, replies, card, error}) }
   async function reply(hooks) {
-    const model = settings().model; changed.length = 0; pendingCard = null; pendingReplies = null;
+    const model = settings().model; changed.length = 0; pendingCard = null; pendingReplies = null; let undoTaken = false;
     countMessage();
     let Anthropic = null; let full = ''; let error = null;
     try {
@@ -339,6 +527,7 @@
           try {
             if (!fn) throw new Error('Unknown tool ' + u.name);
             if (!u.input || typeof u.input !== 'object') throw new Error('Input was not an object');
+            if (MUTATES.has(u.name) && !undoTaken) { takeUndo(); undoTaken = true; }
             return { type: 'tool_result', tool_use_id: u.id, content: String(fn(u.input)) };
           } catch (e) { return { type: 'tool_result', tool_use_id: u.id, is_error: true, content: e.message || 'Failed' }; }
         });
@@ -351,7 +540,7 @@
     }
     App.save();
     const out = splitReplies(full);
-    return { text: out.text, replies: pendingReplies || out.replies, card: pendingCard, error, changed: changed.slice() };
+    return { text: out.text, replies: pendingReplies || out.replies, card: pendingCard, error, changed: changed.slice(), undo: undoTaken && changed.length > 0 };
   }
 
   // ── Menu photos ───────────────────────────────────────────────────────────
@@ -398,5 +587,7 @@
     } catch (e) { return { ok: false, text: errorText(c.Anthropic, e) }; }
   }
 
-  App.AI = { ready, getKey, setKey, settings, MODELS, modelName, monthUsage, reply, readMenu, test, snapshot, loadSDK };
+  function notes() { return S().coachNotes || []; }
+  function forgetNote(i) { const l = S().coachNotes || []; if (i >= 0 && i < l.length) { l.splice(i, 1); App.save(); } }
+  App.AI = { undo, notes, forgetNote, ready, getKey, setKey, settings, MODELS, modelName, monthUsage, reply, readMenu, test, snapshot, loadSDK };
 })();

@@ -51,7 +51,8 @@
   function shell() {
     const t = App.tab;
     const body = t === 'train' ? trainView() : t === 'eat' ? eatView() : t === 'coach' ? coachView() : todayView();
-    return '<div class="tabview' + (App.entering ? ' is-entering' : '') + '" data-tab="' + t + '">' + body + '</div>' + tabbar();
+    return '<div class="scroller" data-scroller><div class="tabview' + (App.entering ? ' is-entering' : '') + '" data-tab="' + t + '">' + body + '</div></div>' +
+      (t === 'coach' ? '<div class="dock"><div class="dock__inner">' + dockHtml('tab') + '</div></div>' : '') + tabbar();
   }
   function tabbar() {
     return '<nav class="tabbar" aria-label="Main"><div class="tabbar__inner">' + TABS.map(([id, label, ic]) =>
@@ -67,7 +68,7 @@
   }
   function header(title, eyebrow) {
     const p = S().profile;
-    return '<div class="compact" aria-hidden="true">' + esc(title) + '</div>' +
+    return '<button class="compact" data-act="scrollTop" aria-label="Back to top">' + esc(title) + '</button>' +
       '<header class="head"><div class="head__text">' + (eyebrow ? '<div class="head__eyebrow">' + esc(eyebrow) + '</div>' : '') + '<h1 class="head__title">' + esc(title) + '</h1></div>' +
       '<button class="avatar" data-act="openProfile" aria-label="Profile and settings">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</button></header>' +
       '<button class="searchbar" data-act="openSearch">' + icon('search') + '<span>Search</span></button>';
@@ -243,7 +244,8 @@
   const FOOD_WORD = { on: 'On track', part: 'Partly', off: 'Off track' };
   function eatView() {
     const w = E.week();
-    let h = header('Eat', App.fmtKg(w.eat) + ' of ' + w.eatMax + ' good days this week') + '<div class="page">';
+    const halves = (n) => (Math.floor(n) || (n % 1 ? '' : '0')) + (n % 1 ? '½' : '');
+    let h = header('Eat', halves(w.eat) + ' of ' + w.eatMax + ' good days this week') + '<div class="page">';
     h += cols('<section class="sec">' + foodCard() + '</section>' + sec('Eating out', '', eatOutBox() + placesList()),
       sec('This week’s dinners', '<button class="sec__link" data-act="shuffleDinners">Shuffle</button>', dinnersList()) +
       sec('Big meal coming up?', '', momentsList()));
@@ -284,8 +286,7 @@
   function coachView() {
     return '<div class="coachview"><header class="coachhead">' + avatarCoach(true) + '<div class="coachhead__main"><div class="coachhead__name">Coach</div>' + (App.AI.ready() ? '<button class="coachhead__sub" data-act="openCoachAI">Your trainer · ' + esc(App.AI.modelName()) + '</button>' : window.claude ? '<div class="coachhead__sub">Your trainer</div>' : '<button class="coachhead__sub coachhead__sub--off" data-act="openCoachAI">Scripted replies · Turn on Claude</button>') + '</div>' +
       '<button class="avatar" data-act="openProfile" aria-label="Profile and settings">' + esc((firstName() || '?').charAt(0).toUpperCase()) + '</button></header>' +
-      '<div class="thread" data-coach-thread aria-live="polite">' + threadHtml() + '</div></div>' +
-      '<div class="dock"><div class="dock__inner">' + dockHtml('tab') + '</div></div>';
+      '<div class="thread" data-coach-thread aria-live="polite">' + threadHtml() + '</div></div>';
   }
   const shownMsgs = new Set();
   function threadHtml() {
@@ -334,7 +335,7 @@
     return t;
   }
   function dockRepliesHtml(where) {
-    if (App.Coach.isBusy() || coachTyping) return '';
+    if (App.Coach.isBusy() || coachTyping) return '<div class="replies replies--wait" aria-hidden="true"></div>';
     const m = App.Coach.latest();
     if (m && m.replies && m.replies.length) return '<div class="replies">' + m.replies.map((r, i) => replyBtn(m, r, i)).join('') + '</div>';
     return '<div class="replies replies--topics">' + topics(where).map(([k, label]) => '<button class="reply" data-act="coachTopic" data-v="' + k + '" data-label="' + esc(label) + '">' + esc(label) + '</button>').join('') + '</div>';
@@ -357,7 +358,7 @@
     const slot = App.$('[data-coach-slot]'); if (slot) slot.innerHTML = coachCard();
     const sheetThread = App.$('.sheet [data-coach-thread]');
     if (sheetThread) { const b = sheetThread.closest('.sheet__body'); if (b) b.scrollTo({ top: b.scrollHeight, behavior: App.reduceMotion() ? 'auto' : 'smooth' }); }
-    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: App.reduceMotion() ? 'auto' : 'smooth' });
+    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) App.scrollTo('end', true);
     if ((App.tab === 'coach' && !App.Session.isOpen()) || sheetThread) App.Coach.markRead();
     refreshBadge();
     const dot = App.$('.sx__coach'); if (dot) dot.innerHTML = icon('coach') + (App.Coach.unread() && !sheetThread ? '<span class="dot-new"></span>' : '');
@@ -367,7 +368,7 @@
   function updateBubble(m) {
     App.$$('.bubble[data-mid="' + m.id + '"]').forEach((el) => { el.textContent = m.text; });
     const sb = App.$('.sheet [data-coach-thread]'); const b = sb && sb.closest('.sheet__body'); if (b) b.scrollTop = b.scrollHeight;
-    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) window.scrollTo(0, document.documentElement.scrollHeight);
+    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) App.scrollTo('end');
   }
   function coachSheet() {
     const L = App.sheet('Coach', '<div class="thread thread--sheet" data-coach-thread aria-live="polite">' + threadHtml() + '</div>', { tall: true, foot: dockHtml('session') });
@@ -386,8 +387,7 @@
     searchEl.innerHTML = '<div class="search__bar"><label class="search__field">' + icon('search') + '<span class="vh">Search</span><input id="searchIn" type="search" placeholder="Search" autocomplete="off" enterkeyhint="search" data-in="search" data-enter="searchEnter"></label><button class="search__cancel" data-act="closeSearch">Cancel</button></div>' +
       '<div class="search__body" data-search-body>' + searchBody('') + '</div>';
     document.body.appendChild(searchEl);
-    document.body.style.overflow = 'hidden';
-    setTimeout(() => { const i = App.$('#searchIn'); if (i) i.focus(); }, 30);
+    const si = App.$('#searchIn'); if (si) si.focus();
   }
   function closeSearch() { if (!searchEl) return; searchEl.remove(); searchEl = null; document.body.style.overflow = ''; }
   function resultCell(it) { return cell({ act: 'searchGo', v: it.id, tile: [it.icon, TYPE_BG[it.type] || 'bg-ink'], title: esc(it.title), sub: it.sub ? esc(it.sub) : '' }); }
@@ -418,7 +418,7 @@
   function ssTag(e) { return e.pair ? '<span class="sstag">' + 'ABCDEFG'.charAt(Number(e.pair.slice(1)) - 1) + (e.pairRole === 'a' ? '1' : '2') + '</span>' : ''; }
   function exRow(e, slotId) {
     const ex = D.EX[e.id]; const sg = E.suggest(e.id, slotId, e);
-    return cell({ act: 'openExercise', v: e.id, art: ex.art, title: ssTag(e) + esc(ex.name), sub: e.sets + ' sets · ' + repsText(ex, e.reps) + (e.pairRole === 'a' ? ' · then straight to the next' : ''), value: esc(sg.mode === 'find' ? 'Find it' : sg.title) });
+    return cell({ act: 'openExercise', v: e.id, art: ex.art, title: ssTag(e) + esc(ex.name), sub: e.sets + ' sets · ' + repsText(ex, e.reps) + (e.pairRole === 'a' ? ' · then straight to the next' : '') + (e.cap && ex.unit === 'kg' ? ' · max ' + App.fmtKg(e.cap) + ' kg' : '') + (e.note ? ' · ' + esc(e.note) : ''), value: esc(sg.mode === 'find' ? 'Find it' : sg.title) });
   }
   function previewSheet(id) {
     const sl = E.slotById(id); if (!sl) return;
@@ -534,7 +534,7 @@
   function libResults() {
     const k = E.kit(); const inPlan = E.planIds();
     const words = lib.q.toLowerCase().trim().split(/\s+/).filter(Boolean);
-    let ids = Object.keys(D.EX).filter((id) => (lib.area === 'all' || areaOf(id) === lib.area) && (!lib.here || E.canDo(id, k)));
+    let ids = Object.keys(D.EX).filter((id) => (words.length || lib.area === 'all' || areaOf(id) === lib.area) && (!lib.here || E.canDo(id, k)));
     if (words.length) {
       ids = ids.filter((id) => { const ex = D.EX[id]; const hay = (ex.name + ' ' + (ex.aka || []).join(' ') + ' ' + ex.focus + ' ' + (ex.muscles || []).concat(ex.muscles2 || []).map((m) => D.MUSCLES[m]).join(' ') + ' ' + ex.eq.map((t) => D.EQUIP_NAME[t]).join(' ')).toLowerCase(); return words.every((w) => hay.indexOf(w) >= 0); });
       ids.sort((a, b) => (D.EX[b].name.toLowerCase().indexOf(words[0]) === 0) - (D.EX[a].name.toLowerCase().indexOf(words[0]) === 0) || (inPlan.has(b) - inPlan.has(a)));
@@ -745,6 +745,7 @@
         cell({ tile: ['history', 'bg-ink'], title: 'This month', sub: u.msgs + ' ' + App.plural(u.msgs, 'message') + ' · about US$' + u.usd.toFixed(2) }),
       ], true) +
         '<div class="sec"><div class="sec__label">Model</div><div class="seg">' + models + '</div><p class="fn">' + esc(App.AI.MODELS[st.model].note) + '</p></div>' +
+        '<div class="sec"><div class="sec__label">What your coach remembers</div>' + (App.AI.notes().length ? '<div class="group">' + App.AI.notes().map((n, i) => '<div class="cell"><span class="cell__main"><span class="cell__title" style="white-space:normal">' + esc(n.text) + '</span><span class="cell__sub">' + esc(fmtDate(App.iso(new Date(n.at)), 'dm')) + '</span></span><button class="icon-btn" data-act="aiNoteDel" data-v="' + i + '" aria-label="Forget this">' + icon('x') + '</button></div>').join('') + '</div>' : '<p class="fn">Nothing yet. Tell the coach about injuries, a physio’s advice or what you like, and it keeps a note for every chat after.</p>') + '</div>' +
         '<div class="inrow" style="flex-wrap:wrap"><button class="btn btn--sm btn--tinted" data-act="aiTest">Test it</button><button class="btn btn--sm btn--danger" data-act="aiForgetKey">Remove key</button></div>';
     }
     h += '<p class="fn">The key stays on this phone, in Spotter’s own storage, and isn’t included in backup codes. Messages go straight from your phone to Anthropic. Anyone using this phone unlocked could use it, so set a monthly spend limit in the Anthropic console.</p>';
@@ -781,7 +782,7 @@
     openCoachAI() { coachAISheet(); },
     aiSaveKey(el) {
       const inp = App.$('#aiKey'); const k = ((inp || {}).value || '').trim();
-      if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(k)) { App.toast('That doesn’t look like a Claude key. It starts with sk-ant-', 'alert'); return; }
+      if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(k)) { App.toast('That doesn’t look like a Claude key. Keys start with sk‑ant‑', 'alert'); return; }
       App.AI.setKey(k); el.disabled = true; el.textContent = 'Testing…';
       App.AI.test().then((r) => {
         if (!r.ok) { App.AI.setKey(''); el.disabled = false; el.textContent = 'Save and test'; App.toast(r.text, 'alert'); return; }
@@ -794,6 +795,7 @@
       App.AI.test().then((r) => { App.toast(r.ok ? 'Working. Claude answered' : r.text, r.ok ? 'check' : 'alert'); App.replaceSheet(coachAIBody()); })
         .catch(() => { el.disabled = false; el.textContent = 'Test it'; App.toast('Couldn’t load Claude. Check you’re online', 'alert'); });
     },
+    aiNoteDel(el) { App.AI.forgetNote(Number(el.dataset.v)); App.replaceSheet(coachAIBody()); App.haptic(); },
     aiForgetKey() { App.AI.setKey(''); App.replaceSheet(coachAIBody()); App.render(); App.toast('Key removed from this phone'); },
   });
   App.Views = {

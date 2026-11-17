@@ -9,6 +9,7 @@
   App.S = migrate(App.load());
   App.Import.register(App.S.customEx);
   backfillRecords();
+  { const msg = App.Session.expireStale(); if (msg) setTimeout(() => App.Coach.note(msg), 0); }
   App.tab = 'today';
   App.Q = [];
   App.entering = true;
@@ -61,28 +62,46 @@
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // The app is a fixed frame the size of the screen: only the content area in the middle
+  // scrolls, and the tab bar and the coach's message box are rows underneath it, so nothing
+  // jumps when you scroll, bounce at the ends, open the keyboard or fold the phone.
   App.render = function () {
     const app = document.getElementById('app');
+    const key = App.ob.active ? 'ob:' + App.ob.phase + ':' + App.ob.step : 'tab:' + App.tab;
+    const keep = key === lastKey ? App.scrollY() : 0; lastKey = key;
     if (!S().profile || App.ob.active) {
       if (!S().profile && !App.ob.active) { App.ob.active = true; App.ob.phase = 'welcome'; }
-      app.innerHTML = App.OB.render();
+      app.className = 'app app--ob';
+      app.innerHTML = '<div class="scroller" data-scroller>' + App.OB.render() + '</div>';
     } else {
       if (!S().plan) S().plan = E.buildPlan(S().profile);
+      if (E.ensureAhead()) { App.save(); if (App.Coach && S().chat.length) App.Coach.note('Your plan’s been extended: 8 more weeks, same sessions'); }
+      app.className = 'app app--tabs' + (App.tab === 'coach' ? ' app--coach' : '');
       app.innerHTML = App.Views.shell();
       App.entering = false;
     }
+    if (keep) App.scrollTo(keep);
     App.Views.animateBars();
     onScroll();
   };
-  function onScroll() { document.body.classList.toggle('is-scrolled', window.scrollY > 46 && !App.ob.active && App.tab !== 'coach'); }
+  let lastKey = '';
+  App.scroller = () => document.querySelector('#app [data-scroller]');
+  App.scrollY = () => { const el = App.scroller(); return el ? el.scrollTop : 0; };
+  // y: a number, or 'end' for the bottom (the coach thread)
+  App.scrollTo = function (y, smooth) {
+    const el = App.scroller(); if (!el) return;
+    const top = y === 'end' ? el.scrollHeight : y || 0;
+    if (smooth && !App.reduceMotion()) el.scrollTo({ top, behavior: 'smooth' }); else el.scrollTop = top;
+  };
+  function onScroll() { document.body.classList.toggle('is-scrolled', App.scrollY() > 46 && !App.ob.active && App.tab !== 'coach'); }
   function goTab(v) {
     App.closeLayer(true); App.Views.closeSearch();
     if (App.tab !== v) {
       App.tab = v; App.entering = true; App.render();
-      window.scrollTo(0, v === 'coach' ? document.documentElement.scrollHeight : 0);
+      App.scrollTo(v === 'coach' ? 'end' : 0);
       if (v === 'coach') { App.Coach.markRead(); App.Views.refreshBadge(); }
       if (v === 'today' || v === 'coach') runCheckIns();
-    } else window.scrollTo({ top: v === 'coach' ? document.documentElement.scrollHeight : 0, behavior: App.reduceMotion() ? 'auto' : 'smooth' });
+    } else App.scrollTo(v === 'coach' ? 'end' : 0, true);
   }
   App.goTab = goTab;
 
@@ -192,8 +211,43 @@
     }
     if (ev.key === 'Escape') { if (App.Views.isSearchOpen()) App.Views.closeSearch(); else App.closeLayer(); }
   });
-  window.addEventListener('scroll', onScroll, { passive: true });
+  document.addEventListener('scroll', (ev) => { if (ev.target && ev.target.hasAttribute && ev.target.hasAttribute('data-scroller')) onScroll(); }, { passive: true, capture: true });
+  // The keyboard and folding change the visible area; the frame follows it exactly, and the
+  // page underneath is pinned so iOS can't leave it shifted after the keyboard closes.
+  const vv = window.visualViewport;
+  let anchor = null; let atEnd = false;
+  function noteAnchor() {
+    const sc = App.scroller(); if (!sc) return;
+    atEnd = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 60;
+    const top = sc.getBoundingClientRect().top;
+    const el = [...sc.querySelectorAll('.sec, .card, .bubble, .head')].find((x) => x.getBoundingClientRect().bottom > top + 4);
+    anchor = el ? { el, dy: el.getBoundingClientRect().top - top } : null;
+  }
+  document.addEventListener('scroll', (ev) => { if (ev.target && ev.target.hasAttribute && ev.target.hasAttribute('data-scroller')) noteAnchor(); }, { passive: true, capture: true });
+  let lastW = window.innerWidth;
+  function keepPlace() {
+    const sc = App.scroller(); if (!sc) return;
+    if (App.tab === 'coach' && !App.ob.active && (atEnd || App.scrollY() === 0)) { App.scrollTo('end'); return; }
+    if (anchor && anchor.el.isConnected) sc.scrollTop += anchor.el.getBoundingClientRect().top - sc.getBoundingClientRect().top - anchor.dy;
+  }
+  function fitViewport() {
+    const root = document.documentElement;
+    const h = vv ? vv.height : window.innerHeight; const top = vv ? vv.offsetTop : 0;
+    root.style.setProperty('--vvh', Math.round(h) + 'px');
+    root.style.setProperty('--vvtop', Math.round(top) + 'px');
+    root.classList.toggle('kb-open', !!vv && window.innerHeight - h > 120);
+    if (window.innerWidth !== lastW) { lastW = window.innerWidth; requestAnimationFrame(keepPlace); }
+  }
+  if (vv) { vv.addEventListener('resize', fitViewport); vv.addEventListener('scroll', fitViewport); }
+  window.addEventListener('resize', fitViewport);
+  window.addEventListener('orientationchange', () => setTimeout(fitViewport, 300));
+  document.addEventListener('focusout', () => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) { window.scrollTo(0, 0); fitViewport(); } }, 60));
+  fitViewport();
+  // put away, switched or closed: save now, not in a moment
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') App.saveNow(); });
+  window.addEventListener('pagehide', () => App.saveNow());
 
+  let rewardT = null;
   const fake = (v, label) => ({ dataset: { v: v == null ? '' : String(v), label: label || '' } });
   function after(fn) { setTimeout(fn, App.topLayer() ? 300 : 0); }
 
@@ -229,6 +283,7 @@
     coachSend(el) {
       const box = el.closest && el.closest('[data-composer]'); const inp = box ? box.querySelector('input:not([type="file"])') : el;
       const v = (inp && inp.value || '').trim(); if (!v) { if (inp && inp.focus) inp.focus(); return; }
+      if (App.Coach.isBusy()) { App.toast('One sec, your coach is still replying'); return; }
       inp.value = ''; App.Coach.send(v);
     },
     coachAct(el) { const [name, ...rest] = el.dataset.v.split('|'); App.closeLayer(true); App.Coach.act(name, rest.join('|'), el.dataset.label); App.render(); },
@@ -265,12 +320,13 @@
       App.toast(D.EX[id].name + ' is in, instead of the ' + App.lc(D.EX[was].name), 'swap');
     },
     openKit() { App.Views.kitSheet(); },
+    scrollTop() { App.scrollTo(0, true); },
     kitToggle(el) {
       const g = E.gym(); const t = el.dataset.v; const i = g.kit.indexOf(t);
       if (i >= 0) g.kit.splice(i, 1); else g.kit.push(t);
       g.edited = true; App.haptic(); App.sound('tick');
       const changed = E.fixPlanForKit();
-      App.save(); App.Views.kitSheet(true);
+      App.save(); App.Views.kitSheet(true); App.render();
       if (changed.length) { App.toast('Plan updated: ' + App.lc(D.EX[changed[0][1]].name) + (changed.length > 1 ? ' and ' + (changed.length - 1) + ' more' : '') + ' swapped in', 'swap'); changed.forEach((c) => App.Coach.note(D.EX[c[0]].name + ' swapped for ' + App.lc(D.EX[c[1]].name))); }
     },
     kitHas(el) {
@@ -325,7 +381,7 @@
     openDinners() { E.track('dinners'); App.Views.dinnersSheet(); },
     shuffleDinners(el) {
       S().dinnerSeed++; App.save(); App.haptic(); App.sound('tick');
-      if (el.dataset.v === 'sheet') App.Views.dinnersSheet(true); else { App.render(); App.toast('New dinners picked', 'shuffle'); }
+      if (el.dataset.v === 'sheet') { App.Views.dinnersSheet(true); App.render(); } else { App.render(); App.toast('New dinners picked', 'shuffle'); }
     },
     openMeal(el) { App.Views.mealSheet(el.dataset.v); },
     openMoment(el) { E.track('moment:' + el.dataset.v); App.Views.momentSheet(el.dataset.v); },
@@ -339,17 +395,24 @@
     // Profile and settings
     openProfile() { E.track('settings'); App.Views.profileSheet(); },
     editPlan(el) {
+      const want0 = (el && el.dataset && el.dataset.v) || 'gym';
+      // a plan the coach has reshaped (injuries, renamed sessions) would be rebuilt from scratch
+      if (S().plan && S().plan.customised && !(el && el.dataset && el.dataset.sure)) {
+        App.closeLayer(true);
+        App.openLayer('<div class="dialog"><div class="dialog__icon" style="background:var(--accent-soft);color:var(--accent-text)">' + App.icon('coach') + '</div><h2 class="dialog__title">Your coach has tailored this plan</h2><p class="dialog__text">Changing your answers builds a new plan and replaces the coach’s changes, like renamed sessions and physio limits. To adjust it, just tell the coach.</p><button class="btn btn--accent" data-act="go" data-v="coach">Ask the coach</button><button class="btn btn--tinted" data-act="editPlan" data-v="' + want0 + '" data-sure="1">Change my answers anyway</button><button class="btn btn--plain" data-act="closeLayer">Cancel</button></div>', { dialog: true });
+        return;
+      }
       App.closeLayer(true);
       App.ob.p = App.OB.fromProfile(S().profile);
       const steps = App.OB.visibleSteps(App.ob.p);
       const want = (el && el.dataset && el.dataset.v) || 'gym';
       App.ob.step = Math.max(0, steps.findIndex((s) => s.id === want));
       App.ob.phase = 'steps'; App.ob.active = true; App.ob.editing = true; App.ob.dir = 1;
-      App.render(); window.scrollTo(0, 0);
+      App.render(); App.scrollTo(0);
     },
     startPlan() {
       App.ob.active = false; App.ob.editing = false; App.ob.phase = 'welcome';
-      App.tab = 'today'; App.entering = true; App.saveNow(); App.render(); window.scrollTo(0, 0);
+      App.tab = 'today'; App.entering = true; App.saveNow(); App.render(); App.scrollTo(0);
       App.celebrateFx(); App.haptic('success');
       setTimeout(runCheckIns, 700);
     },
@@ -367,11 +430,12 @@
         const data = JSON.parse(decodeURIComponent(escape(atob(v))));
         if (!data || !data.profile) throw new Error('bad');
         App.S = Object.assign(App.fresh(), data);
-        App.saveNow(); App.closeLayer(true); App.applyTheme(); App.render(); App.toast('Progress restored', 'check');
+        App.saveNow(); App.toast('Progress restored', 'check');
+        setTimeout(() => location.reload(), 600);
       } catch (e) { App.toast('That code didn’t work. Check you copied all of it.', 'alert'); }
     },
     timeTravel(el) {
-      S().dev.offset = Number(el.dataset.v); App.save(); App.closeLayer(true); App.render(); window.scrollTo(0, 0);
+      S().dev.offset = Number(el.dataset.v); App.save(); App.closeLayer(true); App.render(); App.scrollTo(0);
       App.toast(S().dev.offset ? 'Pretending it’s ' + fmtDate(today(), 'long') : 'Back to the real date', 'clock');
       setTimeout(runCheckIns, 500);
     },
@@ -382,7 +446,7 @@
     resetAll() {
       try { localStorage.removeItem(App.KEY); localStorage.removeItem('spotter.v1'); } catch (e) {}
       App.S = App.fresh(); App.ob.active = true; App.ob.phase = 'welcome'; App.ob.p = null; App.ob.step = 0; App.tab = 'today'; App.Q = [];
-      App.closeLayer(true); App.Session.close(); App.applyTheme(); App.render(); window.scrollTo(0, 0);
+      App.closeLayer(true); App.Session.close(); App.applyTheme(); App.render(); App.scrollTo(0);
     },
     openInstall() { App.Views.installSheet(); },
     dismissInstall() { S().seen.install = true; App.save(); App.closeLayer(true); App.render(); },
@@ -390,7 +454,7 @@
   Object.assign(App.IN, {
     search(el) { App.Views.renderSearch(el.value); },
     libQ(el) { App.Views.lib.q = el.value; App.Views.renderLib(); },
-    reward(el) { S().rewards = Object.assign({}, S().rewards || D.DEFAULT_REWARDS); S().rewards[el.dataset.w] = el.value; App.save(); },
+    reward(el) { S().rewards = Object.assign({}, S().rewards || D.DEFAULT_REWARDS); S().rewards[el.dataset.w] = el.value; App.save(); clearTimeout(rewardT); rewardT = setTimeout(() => App.render(), 400); },
   });
 
   // ── Example progress (prototype tool) ─────────────────────────────────────
@@ -426,7 +490,7 @@
     s.events.push({ id: App.uid(), type: 'gathering', date: sat >= t ? sat : addDays(sat, 7), title: 'Family event', planned: true });
     if (s.log.length > 1) s.seen.stronger = true;
     App.checkAwards(true);
-    App.saveNow(); App.tab = 'today'; App.entering = true; App.render(); window.scrollTo(0, 0);
+    App.saveNow(); App.tab = 'today'; App.entering = true; App.render(); App.scrollTo(0);
     App.toast('Two weeks of example progress added', 'sparkle');
     setTimeout(runCheckIns, 600);
   }

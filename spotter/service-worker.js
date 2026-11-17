@@ -1,5 +1,5 @@
 /* Spotter — offline support. Bump CACHE_VERSION after changing any file so installed copies update. */
-const CACHE_VERSION = 'spotter-v3.3';
+const CACHE_VERSION = 'spotter-v4.0';
 const SHELL = [
   './',
   './index.html',
@@ -22,10 +22,12 @@ const SHELL = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',
+  './icons/favicon-32.png',
+  './icons/icon-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE_VERSION).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -54,7 +56,7 @@ self.addEventListener('fetch', (event) => {
       const net = fetch(req).then((res) => {
         if (res.ok) caches.open(CACHE_VERSION).then((c) => c.put(req, res.clone()));
         return res;
-      }).catch(() => hit);
+      }).catch(() => hit || (req.mode === 'navigate' ? caches.match('./index.html') : undefined));
       return hit || net;
     })
   );

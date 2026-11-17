@@ -52,9 +52,21 @@
   let saveTimer = null;
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(App.S)); } catch (e) { /* storage full or blocked */ } }, 120);
+    saveTimer = setTimeout(write, 120);
   }
-  function saveNow() { clearTimeout(saveTimer); try { localStorage.setItem(KEY, JSON.stringify(App.S)); } catch (e) {} }
+  function saveNow() { clearTimeout(saveTimer); write(); }
+  let warned = false;
+  function write() {
+    try { localStorage.setItem(KEY, JSON.stringify(App.S)); return true; } catch (e) { /* full or blocked */ }
+    // full: photos are the big things, so drop the oldest and try again
+    const S2 = App.S; let freed = false;
+    (S2.chat || []).forEach((m) => { if (m.img) { delete m.img; freed = true; } });
+    const withPhoto = Object.keys(S2.exSettings || {}).filter((id) => S2.exSettings[id].photo);
+    withPhoto.slice(0, Math.max(0, withPhoto.length - 6)).forEach((id) => { delete S2.exSettings[id].photo; freed = true; });
+    if (freed) { try { localStorage.setItem(KEY, JSON.stringify(App.S)); if (!warned) { warned = true; toast('Storage was full, so older photos were removed'); } return true; } catch (e) {} }
+    if (!warned) { warned = true; toast('Can’t save: this phone’s storage for Spotter is full. Remove machine photos in Train → Exercises.', 'alert'); }
+    return false;
+  }
 
   // ── Dates (local, Monday-first weeks) ─────────────────────────────────────
   const DAY = 86400000;
@@ -62,7 +74,10 @@
   const DOW_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  function nowMs() { return Date.now() + (App.S && App.S.dev ? App.S.dev.offset : 0) * DAY; }
+  function nowMs() {
+    const off = App.S && App.S.dev ? App.S.dev.offset : 0; if (!off) return Date.now();
+    const d = new Date(); d.setDate(d.getDate() + off); return d.getTime();
+  }
   function now() { return new Date(nowMs()); }
   function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function parse(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
@@ -293,7 +308,21 @@
     document.body.appendChild(el);
     layers.push({ el, onClose: opts.onClose });
     document.body.classList.add('has-layer');
+    const sh = el.querySelector('.sheet'); if (sh) dragToClose(sh);
     return el;
+  }
+  // Drag a sheet down by its top bar to close it, like iOS.
+  function dragToClose(sh) {
+    let y0 = null; let dy = 0;
+    const grab = (ev) => { const t = ev.target; return t.closest && t.closest('.sheet__grab, .sheet__head') && !t.closest('button, a, input'); };
+    sh.addEventListener('touchstart', (ev) => { if (!grab(ev) || ev.touches.length > 1) return; y0 = ev.touches[0].clientY; dy = 0; sh.classList.add('is-dragging'); }, { passive: true });
+    sh.addEventListener('touchmove', (ev) => { if (y0 == null) return; dy = Math.max(0, ev.touches[0].clientY - y0); sh.style.transform = 'translateY(' + dy + 'px)'; }, { passive: true });
+    const end = () => {
+      if (y0 == null) return; y0 = null; sh.classList.remove('is-dragging');
+      if (dy > Math.min(140, sh.offsetHeight * 0.25)) { closeLayer(); return; }
+      sh.classList.add('is-settling'); sh.style.transform = ''; setTimeout(() => sh.classList.remove('is-settling'), 260);
+    };
+    sh.addEventListener('touchend', end); sh.addEventListener('touchcancel', end);
   }
   // iOS-style sheet: centred title, Done on the right.
   function sheet(title, body, opts) {
@@ -466,6 +495,12 @@
     const t = App.S.settings.theme;
     if (t === 'light' || t === 'dark') { document.documentElement.setAttribute('data-theme', t); themeSet = true; }
     else if (themeSet) { document.documentElement.removeAttribute('data-theme'); themeSet = false; }
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+      if (!m.dataset.media) m.dataset.media = m.getAttribute('media') || '';
+      const own = /dark/.test(m.dataset.media) ? '#000000' : '#f2f2f7';
+      if (t === 'light' || t === 'dark') { m.setAttribute('content', t === 'dark' ? '#000000' : '#f2f2f7'); m.removeAttribute('media'); }
+      else { m.setAttribute('content', own); if (m.dataset.media) m.setAttribute('media', m.dataset.media); }
+    });
   }
 
   let wake = null;

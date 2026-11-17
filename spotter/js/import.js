@@ -58,7 +58,8 @@
     }
     const tmpl = {}; (data.templates || []).forEach((t) => { tmpl[t.id] = t; });
     const log = [];
-    data.sessions.slice().sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0)).forEach((s) => {
+    const dayOf = (d) => { const x = String(d || ''); if (/^\d{4}-\d{2}-\d{2}$/.test(x)) return x; const t = new Date(x); return isNaN(t) ? '' : App.iso(t); };
+    data.sessions.map((s) => Object.assign({}, s, { d: dayOf(s.d) })).filter((s) => s.d && s.d <= App.today()).sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0)).forEach((s) => {
       const ex = (s.ex || []).map((e) => ({ id: idFor(e.id), sets: (e.sets || []).map(parseSet).filter(Boolean) })).filter((e) => e.sets.length);
       if (!ex.length) return; // started but nothing logged
       log.push({ id: 'il_' + s.id, slot: null, key: s.t || '', week: 0, date: s.d, mins: 0, ex, prs: null, mood: null, imported: 'ironlog' });
@@ -111,8 +112,7 @@
     s.customEx = Object.assign({}, s.customEx || {}, imp.customEx);
     register(s.customEx);
     const have = new Set(s.log.map((l) => l.id));
-    const mine = s.log.filter((l) => !l.imported);
-    const added = imp.log.filter((l) => !have.has(l.id) && !mine.some((m) => sameWorkout(m, l)))
+    const added = imp.log.filter((l) => !have.has(l.id) && !s.log.some((m) => sameWorkout(m, l)))
       .map((l) => Object.assign({}, l, { ex: l.ex.map((e) => Object.assign({}, e, { sets: e.sets.map((x) => Object.assign({}, x)) })) }));
     const all = s.log.concat(added);
     all.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));

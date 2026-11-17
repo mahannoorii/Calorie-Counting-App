@@ -274,10 +274,12 @@
     h += '<div class="group">' + Object.keys(D.EQUIP).map((gk) => {
       const grp = D.EQUIP[gk]; const items = Object.keys(grp.items);
       const n = items.filter((t) => on.has(t)).length;
-      const maybe = items.filter((t) => !on.has(t) && L.maybe.includes(t));
-      const rest = items.filter((t) => !on.has(t) && !L.maybe.includes(t));
+      // grouped by what the gym is known to have, so ticking or unticking never moves a chip
+      const core = (t) => L.on.includes(t) || on.has(t);
+      const maybe = items.filter((t) => !core(t) && L.maybe.includes(t));
+      const rest = items.filter((t) => !core(t) && !L.maybe.includes(t));
       const chipT = (t) => '<button class="chip' + (on.has(t) ? ' is-on' : '') + '" data-act="obKit" data-v="' + t + '" aria-pressed="' + on.has(t) + '">' + esc(grp.items[t]) + '</button>';
-      const panel = '<div class="chips">' + items.filter((t) => on.has(t)).map(chipT).join('') + '</div>' +
+      const panel = '<div class="chips">' + items.filter(core).map(chipT).join('') + '</div>' +
         (maybe.length ? '<div class="mini-h" style="margin-top:12px">Often at ' + esc((DB.CHAINS[g.chain] || {}).name || 'gyms like this') + '</div><div class="chips">' + maybe.map(chipT).join('') + '</div>' : '') +
         (rest.length ? '<div class="mini-h" style="margin-top:12px">Less common</div><div class="chips">' + rest.map(chipT).join('') + '</div>' : '');
       return '<div class="disc' + (App.discOpen['kit-' + gk] ? ' is-open' : '') + '" data-disc="kit-' + gk + '"><button aria-expanded="' + !!App.discOpen['kit-' + gk] + '" class="cell disc__btn" data-act="toggleDisc" data-v="kit-' + gk + '"><span class="cell__main"><span class="cell__title">' + esc(grp.name) + '</span></span><span class="cell__value">' + n + ' of ' + items.length + '</span>' + icon('right', 'cell__chev') + '</button><div class="disc__panel">' + panel + '</div></div>';
@@ -328,7 +330,7 @@
       '<div class="ob__nav"><button class="icon-btn icon-btn--plain" data-act="obBack" aria-label="Back">' + icon('left') + '</button>' +
         '<div class="ob__bar" role="progressbar" aria-label="Progress" aria-valuenow="' + pct + '" aria-valuemin="0" aria-valuemax="100"><i style="width:' + pct + '%"></i></div>' +
         '</div>' +
-      '<div class="ob__body' + (ob.dir < 0 ? ' is-back' : '') + '">' +
+      '<div class="ob__body' + (ob.still ? ' is-still' : ob.dir < 0 ? ' is-back' : '') + '">' +
         '<h1 class="ob__q">' + st.q(p) + '</h1>' +
         '<p class="ob__why">' + esc(st.why(p)) + '</p>' +
         st.body(p) +
@@ -370,7 +372,7 @@
     const steps = App.$$('[data-bstep]');
     const gap = App.reduceMotion() ? 120 : 480;
     steps.forEach((el, i) => setTimeout(() => { el.classList.add('is-done'); App.sound('tick'); App.haptic(); }, 400 + i * gap));
-    setTimeout(() => { ob.phase = 'reveal'; App.render(); window.scrollTo(0, 0); App.sound('done'); App.haptic('success'); }, 400 + steps.length * gap + 450);
+    setTimeout(() => { ob.phase = 'reveal'; App.render(); App.scrollTo(0); App.sound('done'); App.haptic('success'); }, 400 + steps.length * gap + 450);
   }
 
   // ── The reveal: the plan at a glance, how your answers shaped it, then into the app ─
@@ -442,7 +444,7 @@
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const toggle = (arr, v) => { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); };
-  function rerender() { const y = window.scrollY; App.render(); window.scrollTo(0, y); }
+  function rerender() { ob.still = true; App.render(); ob.still = false; }
   function refreshFoot() {
     const st = visibleSteps(ob.p)[ob.step];
     const btn = App.$('[data-act="obNext"]'); if (btn) { btn.disabled = !st.valid(ob.p); btn.textContent = ob.step === visibleSteps(ob.p).length - 1 ? (ob.editing ? 'Update my plan' : 'Build my plan') : st.optional && st.optional(ob.p) ? 'Skip' : 'Continue'; }
@@ -456,7 +458,7 @@
     p.gymId = p.gym.id; p.adding = false;
   }
   Object.assign(App.ACT, {
-    obStart() { ob.p = ob.p || blank(); ob.phase = 'steps'; ob.step = 0; ob.dir = 1; App.render(); window.scrollTo(0, 0); },
+    obStart() { ob.p = ob.p || blank(); ob.phase = 'steps'; ob.step = 0; ob.dir = 1; App.render(); App.scrollTo(0); },
     obDemoAsk() {
       App.openLayer('<div class="dialog"><div class="dialog__icon">' + icon('sparkle') + '</div><h2 class="dialog__title">Try it as…</h2><p class="dialog__text">Example answers fill everything in, so you can see the plan straight away.</p>' +
         '<button class="btn" data-act="obDemo" data-v="new">Someone new to the gym</button><button class="btn btn--tinted" data-act="obDemo" data-v="lifter">An experienced lifter</button><button class="btn btn--plain" data-act="closeLayer">Cancel</button></div>', { dialog: true });
@@ -468,7 +470,7 @@
         if (App.S.profile) { ob.editing = false; ob.active = false; App.render(); return; }
         ob.phase = 'welcome'; App.render(); return;
       }
-      ob.step--; ob.dir = -1; App.render(); window.scrollTo(0, 0);
+      ob.step--; ob.dir = -1; App.render(); App.scrollTo(0);
     },
     obNext() {
       const steps = visibleSteps(ob.p); const st = steps[ob.step];
@@ -476,19 +478,34 @@
       App.haptic();
       if (st.id === 'experience') fitToLevel(ob.p);
       if (ob.step >= steps.length - 1) return App.ACT.obFinish();
-      ob.step++; ob.dir = 1; App.render(); window.scrollTo(0, 0);
+      ob.step++; ob.dir = 1; App.render(); App.scrollTo(0);
     },
     obFinish() {
       const prev = App.S.profile; const p = ob.p;
       if (!p.equipment) p.equipment = STYLE_DEFAULT[p.experience] || 'machines';
       App.S.profile = toProfile(p);
       if (prev && prev.health && prev.health.cleared && !App.S.profile.health.flag) App.S.profile.health.cleared = true;
-      if (ob.imp) { App.Import.apply(ob.imp); ob.imp = null; }
-      App.S.plan = App.E.buildPlan(App.S.profile);
+      const prevPlan = App.S.plan;
+      const imp = ob.imp; ob.imp = null;
+      if (imp) { App.S.plan = null; App.Import.apply(imp); }
+      const plan = App.E.buildPlan(App.S.profile);
+      if (prevPlan) {
+        const t = App.today(); const from = plan.start;
+        App.S.plan = prevPlan;
+        const past = prevPlan.slots.filter((sl) => App.E.isDone(sl) || App.E.slotDate(sl) < t);
+        const keepKeys = new Set(past.map((sl) => sl.key)); if (App.S.active) keepKeys.add(App.S.active.key);
+        keepKeys.forEach((k) => { if (!plan.sessions[k] && prevPlan.sessions[k]) plan.sessions[k] = prevPlan.sessions[k]; });
+        const goalMoved = (plan.event && plan.event.date) !== (prevPlan.event && prevPlan.event.date);
+        let end = goalMoved ? plan.end : prevPlan.end; if (end < App.addDays(from, 13)) end = plan.end;
+        Object.assign(plan, { start: prevPlan.start < from ? prevPlan.start : from, carry: prevPlan.carry || 0, slots: past });
+        App.S.plan = plan;
+        App.E.reschedule({ from, end });
+      } else App.S.plan = plan;
+      if (imp) App.Import.resync();
       App.checkAwards(true);
       App.S.rewards = App.S.rewards || Object.assign({}, D.DEFAULT_REWARDS);
       App.saveNow();
-      ob.active = true; ob.phase = 'build'; App.render(); window.scrollTo(0, 0);
+      ob.active = true; ob.phase = 'build'; App.render(); App.scrollTo(0);
       runBuild();
     },
     obOpt(el) {
@@ -522,7 +539,7 @@
         if (!p.mins || p.mins < 60) p.mins = 60;
         ob.imp = imp; ob.p = p; ob.editing = !!pr; ob.active = true; ob.phase = 'steps'; ob.dir = 1;
         ob.step = pr ? Math.max(0, visibleSteps(p).findIndex((x) => x.id === 'program')) : 0;
-        App.closeLayer(true); App.render(); window.scrollTo(0, 0);
+        App.closeLayer(true); App.render(); App.scrollTo(0);
         App.sound('set'); App.haptic('success');
         App.toast(imp.count + ' sessions ready to bring over', 'check');
       }).catch(() => { el.value = ''; App.toast('That file didn’t look like an Iron Log backup', 'alert'); });
@@ -541,7 +558,12 @@
     obDay(el) {
       const p = ob.p; const v = Number(el.dataset.v);
       if (p.days.includes(v)) p.days = p.days.filter((d) => d !== v);
-      else { p.days.push(v); if (p.days.length > p.perWeek) p.days.shift(); }
+      else {
+        const max = Math.max.apply(null, E().dayOptions(p));
+        if (p.days.length >= p.perWeek && p.perWeek < max) p.perWeek++;
+        else if (p.days.length >= p.perWeek) { App.toast(p.perWeek + ' days a week is the most for now. Unpick a day to choose this one.'); return; }
+        p.days.push(v);
+      }
       pickTick(); rerender();
     },
     obMins(el) { ob.p.mins = Number(el.dataset.v); pickTick(); rerender(); },
@@ -578,7 +600,7 @@
   Object.assign(App.IN, {
     obName(el) { ob.p.name = el.value; refreshFoot(); },
     obEvName(el) { ob.p.event.name = el.value; refreshFoot(); },
-    obEvDate(el) { ob.p.event.date = el.value; refreshFoot(); rerender(); },
+    obEvDate(el) { ob.p.event.date = el.value; refreshFoot(); },
     obWhy(el) { ob.p.why = el.value; refreshFoot(); },
     obGymQ(el) { ob.p.gymQ = el.value; if (el.value.trim()) ob.p.here = null; refreshGyms(); },
     obNewGym(el) { ob.p.newGym.name = el.value; const b = App.$('[data-act="obAddGymSave"]'); if (b) b.disabled = !el.value.trim(); },
