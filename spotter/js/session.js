@@ -47,7 +47,9 @@
   }
   function partnerOf(st) { const a = S().active; return st && st.pair && a ? a.steps.find((x) => x !== st && x.t === 'ex' && x.pair === st.pair) || null : null; }
   function ssTag(st) { return 'ABCDEFG'.charAt(Number(st.pair.slice(1)) - 1) + (st.pairRole === 'a' ? '1' : '2'); }
+  let entering = false;
   function open() {
+    entering = !host;
     ensureHost(); document.body.style.overflow = 'hidden';
     App.keepAwake(true); render();
   }
@@ -65,14 +67,15 @@
     else if (st.t === 'cardio') v = cardioStep(a, st);
     else if (st.t === 'ex') v = exerciseStep(a, st);
     else v = cooldownStep(a, st);
-    host.innerHTML = '<div class="sx" role="dialog" aria-label="Session in progress">' +
+    host.innerHTML = '<div class="sx' + (entering ? ' sx--in' : '') + '" role="dialog" aria-label="Session in progress">' +
       '<div class="sx__nav"><button class="icon-btn" data-act="sxLeave" aria-label="Pause or finish">' + icon('x') + '</button>' +
-        '<div class="sx__title"><div class="sx__name">' + esc(E.sessionName({ key: a.key })) + '</div><div class="sx__step">' + esc(where) + '</div></div>' +
+        '<button class="sx__title" data-act="sxSteps" aria-label="All steps"><div class="sx__name">' + esc(E.sessionName({ key: a.key })) + '</div><div class="sx__step">' + esc(where) + ' ' + icon('down', 'ic-sm') + '</div></button>' +
         '<button class="icon-btn sx__coach" data-act="openCoachSheet" aria-label="Message your coach">' + icon('coach') + (App.Coach.unread() ? '<span class="dot-new"></span>' : '') + '</button></div>' +
       '<div class="sx__bar" aria-hidden="true">' + bar + '</div>' +
       '<div class="sx__scroll"><div class="sx__body' + (dir < 0 ? ' is-back' : '') + '">' + v.body + '</div></div>' +
       '<div class="sx__foot"><div class="sx__foot-inner">' + v.foot + '</div></div>' +
     '</div>';
+    entering = false;
     const sc = host.querySelector('.sx__scroll'); if (sc) sc.scrollTop = 0;
     clearInterval(tick); tick = null;
     if (st.t === 'cardio') { tick = setInterval(updateCardio, 500); updateCardio(); }
@@ -158,7 +161,7 @@
       (partner ? '<button class="ssbar" data-act="sxGoPartner"><span class="sstag">' + ssTag(st) + '</span><span class="ssbar__text"><b>Superset with the ' + esc(App.lc(D.EX[partner.id].name)) + '.</b> ' + (st.pairRole === 'a' ? 'One set here, then straight there. Rest after both.' : 'Rest after this one, then back to the start.') + '</span>' + icon('swap', 'ic-sm') + '</button>' : '') +
       '</div><div class="sx__pane">' +
       coachLine(title, esc(st.sgWhy)) +
-      (st.note || st.cap ? '<div class="callout callout--blue">' + icon('shield') + '<div><b>Coach’s note:</b> ' + esc([st.note, st.cap && D.EX[st.id].unit === 'kg' ? 'Keep it at ' + App.fmtKg(st.cap) + ' kg or under.' : ''].filter(Boolean).join(' ')) + '</div></div>' : '') +
+      (st.note || st.cap ? '<div class="callout callout--blue sx-note">' + icon('shield') + '<div><b>Coach’s note:</b> ' + esc([st.note, st.cap && D.EX[st.id].unit === 'kg' ? 'Keep it at ' + App.fmtKg(st.cap) + ' kg or under.' : ''].filter(Boolean).join(' ')) + '</div></div>' : '') +
       '<div data-sets>' + setsHtml(st, ex) + '</div>' +
       '<div data-firstfeel>' + firstFeelHtml(st, ex) + '</div>' +
       '<div data-effort>' + effortsHtml(st) + '</div>' +
@@ -236,7 +239,7 @@
   function logSet(i) {
     const st = curEx(); if (!st) return;
     const set = st.sets[i]; const ex = D.EX[st.id];
-    if (set.done) { set.done = false; delete set.pr; App.save(); refreshSets(); return; }
+    if (set.done) { set.done = false; delete set.pr; closeRest(true); App.save(); refreshSets(); return; }
     set.done = true;
     // a personal record against every earlier session and today's earlier sets
     const pr = E.prFor(st.id, set, st.sets.filter((x, j) => j !== i && x.done));
@@ -253,14 +256,27 @@
       setTimeout(() => { const ef = host && host.querySelector('[data-effort]'); if (ef) ef.scrollIntoView({ behavior: App.reduceMotion() ? 'auto' : 'smooth', block: 'center' }); }, 120);
     } else if (firstFind) {
       // set 1 on a new exercise: ask how it felt before anything else
+      reveal('[data-firstfeel]');
     } else if (ptLeft) {
       if (st.pairRole === 'a') goPartner(false);
       else { openRest(st, ex); goPartner(true); }
-    } else openRest(st, ex);
+    } else { openRest(st, ex); reveal('.setrow.is-next'); }
+  }
+  // Scroll the session so el sits above the rest bar and the buttons.
+  function reveal(sel) {
+    setTimeout(() => {
+      const sc = host && host.querySelector('.sx__scroll'); const el = host && host.querySelector(sel); if (!sc || !el) return;
+      const foot = host.querySelector('.sx__foot-inner'); const rb = rest && rest.el;
+      const limit = Math.min(foot ? foot.getBoundingClientRect().top : innerHeight, rb ? rb.getBoundingClientRect().top : innerHeight) - 12;
+      const r = el.getBoundingClientRect(); const top = sc.getBoundingClientRect().top + 8;
+      let dy = 0; if (r.bottom > limit) dy = r.bottom - limit; if (r.top - dy < top) dy = r.top - top;
+      if (dy) sc.scrollBy({ top: dy, behavior: App.reduceMotion() ? 'auto' : 'smooth' });
+    }, 80);
   }
   // Move between the two exercises of a superset.
   function goPartner(afterRest) {
     const a = S().active; const st = curEx(); const pt = partnerOf(st); if (!pt) return;
+    if (!afterRest) closeRest(true);
     setTimeout(() => {
       if (!S().active || curEx() !== st) return;
       a.step = a.steps.indexOf(pt); App.save(); render(1);
@@ -292,10 +308,17 @@
       '<button data-act="restAdd">+15 s</button><button data-act="restSkip">Skip</button>';
     document.body.appendChild(el);
     rest = { el, end: Date.now() + secs * 1000, total: secs, timer: setInterval(updateRest, 250) };
-    updateRest();
+    placeRest(); updateRest();
+  }
+  function placeRest() {
+    if (!rest || !host) return;
+    const btns = host.querySelectorAll('.sx__foot-inner > *'); if (!btns.length) return;
+    const l = btns[0].getBoundingClientRect(); const r = btns[btns.length - 1].getBoundingClientRect();
+    const vw = document.documentElement.clientWidth; const vh = window.innerHeight;
+    Object.assign(rest.el.style, { left: Math.round(l.left) + 'px', right: Math.round(vw - r.right) + 'px', bottom: Math.round(vh - Math.min(l.top, r.top) + 10) + 'px', maxWidth: 'none', margin: '0' });
   }
   function updateRest() {
-    if (!rest) return;
+    if (!rest) return; placeRest();
     const left = Math.max(0, (rest.end - Date.now()) / 1000);
     const fg = rest.el.querySelector('.fg'); if (fg) fg.setAttribute('stroke-dashoffset', (113.1 * (1 - left / rest.total)).toFixed(1));
     const t = rest.el.querySelector('[data-rtime]'); if (t) t.textContent = left > 0 ? mmss(left) : 'Go';
@@ -423,7 +446,7 @@
     el.innerHTML = '<div class="prpop__card"><div class="prpop__rays" aria-hidden="true">' + rays + '</div>' +
       '<div class="prpop__stamp">PR</div><div class="prpop__kicker">New personal record</div>' +
       '<div class="prpop__title">' + esc(t.title) + '</div>' +
-      '<div class="prpop__what">' + esc(ex.name) + ' · ' + esc(ex.unit === 'kg' ? App.fmtKg(set.w) + ' kg × ' + set.r : set.r + (ex.unit === 'sec' ? ' s' : ' reps')) + '</div>' +
+      '<div class="prpop__what">' + esc(ex.name) + ' · <span class="nowrap">' + esc(ex.unit === 'kg' ? App.fmtKg(set.w) + ' kg × ' + set.r : set.r + (ex.unit === 'sec' ? ' s' : ' reps')) + '</span></div>' +
       '<div class="prpop__gain">' + icon('up', 'ic-sm') + esc(t.gain) + '</div></div>';
     document.body.appendChild(el);
     App.sound('award'); App.haptic('success');
@@ -493,6 +516,21 @@
     },
     sxPause() { App.closeLayer(true); close(); App.render(); App.toast('Saved. Resume from Today.', 'pause'); },
     sxEndNow() { App.closeLayer(true); finish(); },
+    sxSteps() {
+      const a = S().active; if (!a) return; let n = 0;
+      const rows = a.steps.map((x, i) => {
+        const title = x.t === 'ready' ? 'Getting ready' : x.t === 'cardio' ? (x.role === 'warmup' ? 'Warm-up' : 'Finisher') : x.t === 'cooldown' ? 'Cool-down' : (++n) + '. ' + D.EX[x.id].name;
+        const sub = x.t === 'ex' ? x.sets.filter((y) => y.done).length + ' of ' + x.sets.length + ' sets' + (x.skipped ? ' · skipped' : '') : i < a.step ? 'Done' : '';
+        return '<button class="cell' + (i === a.step ? ' is-on' : '') + '" data-act="sxGoStep" data-v="' + i + '"><span class="cell__main"><span class="cell__title">' + esc(title) + '</span>' + (sub ? '<span class="cell__sub">' + esc(sub) + '</span>' : '') + '</span>' + (i === a.step ? '<span class="cell__value">Now</span>' : icon('right', 'cell__chev')) + '</button>';
+      }).join('');
+      App.sheet('Today’s session', '<div class="group">' + rows + '</div><p class="fn">Tap any step to go back to it or jump ahead.</p>');
+    },
+    sxGoStep(el) {
+      const a = S().active; const i = Number(el.dataset.v); if (!a || !(i >= 0 && i < a.steps.length)) return;
+      App.closeLayer(true); closeRest(true);
+      const dir = i < a.step ? -1 : 1; const st = a.steps[i]; if (st.skipped) delete st.skipped;
+      a.step = i; App.save(); render(dir);
+    },
     sxDiscardAsk() { App.closeLayer(true); setTimeout(() => askDiscard(false), 280); },
     sxDiscard() { App.closeLayer(true); discard(); App.render(); App.toast('Session discarded. It’s back in your plan.'); },
     sxCheck(el) { const st = S().active.steps[S().active.step]; const k = el.dataset.v; st.checks[k] = !st.checks[k]; el.classList.toggle('is-on', st.checks[k]); App.haptic(); if (st.checks[k]) App.sound('tick'); App.save(); },
@@ -515,23 +553,27 @@
       v = f === 'w' ? Math.min(1000, Math.max(0, Math.round(v * 100) / 100)) : Math.min(ex.unit === 'sec' ? 3600 : 300, Math.max(1, Math.round(v)));
       set[f] = v;
       if (!set.done) st.sets.forEach((x, j) => { if (j > i && !x.done) x[f] = v; });
-      App.save(); refreshSets();
+      App.save();
+      st.sets.forEach((x, j) => { const inp = host.querySelector('[data-num="' + j + f + '"]'); if (inp && inp !== document.activeElement) inp.value = f === 'w' ? App.fmtKg(x[f]) : x[f]; });
+      el.value = f === 'w' ? App.fmtKg(v) : v;
       const n = host.querySelector('[data-num="' + i + f + '"]'); if (n) { n.classList.remove('is-bump'); void n.offsetWidth; n.classList.add('is-bump'); }
       App.haptic();
     },
     sxGoPartner() { const a = S().active; const pt = partnerOf(curEx()); if (!pt) return; closeRest(true); a.step = a.steps.indexOf(pt); App.save(); App.haptic(); render(1); },
     sxNotHere() {
       const st = curEx(); if (!st) return; const ex = D.EX[st.id]; const g = E.gym();
-      const tag = ex.eq.find((t) => !['dumbbells', 'flat_bench', 'adjustable_bench', 'mats'].includes(t)) || ex.eq[0];
-      g.kit = g.kit.filter((t) => t !== tag); g.edited = true;
+      const tag = ex.eq.find((t) => !['dumbbells', 'flat_bench', 'adjustable_bench', 'mats', 'barbell', 'plates', 'pullup_bar'].includes(t));
+      if (tag) g.kit = g.kit.filter((t) => t !== tag); else { g.noEx = g.noEx || []; if (!g.noEx.includes(st.id)) g.noEx.push(st.id); }
+      g.edited = true;
       const changed = E.fixPlanForKit();
       const a = S().active; const inSession = a.steps.filter((x) => x.t === 'ex').map((x) => x.id);
       const to = S().swaps[st.base] && E.canDo(S().swaps[st.base]) && !inSession.includes(S().swaps[st.base]) ? S().swaps[st.base] : E.swapsFor(st.id, st.base, inSession)[0];
       App.closeLayer(true);
       if (to) Object.assign(st, exStep(to, st.base, st.sets.length, a.slot, keep(st)));
       App.save(); render();
-      App.Coach.note(E.gymShort() + ': no ' + D.EQUIP_NAME[tag].toLowerCase() + '. Plan updated' + (changed.length ? ' (' + changed.length + ' ' + App.plural(changed.length, 'swap') + ')' : ''));
-      App.toast('Got it. Your plan won’t use the ' + D.EQUIP_NAME[tag].toLowerCase() + ' again.', 'check');
+      const what = tag ? 'the ' + D.EQUIP_NAME[tag].toLowerCase() : 'the ' + App.lc(ex.name);
+      App.Coach.note(E.gymShort() + ': no ' + what.replace(/^the /, '') + '. Plan updated' + (changed.length ? ' (' + changed.length + ' ' + App.plural(changed.length, 'swap') + ')' : ''));
+      App.toast('Got it. Your plan won’t use ' + what + ' again.', 'check');
     },
     sxDone(el) { logSet(Number(el.dataset.v)); },
     sxAddSet() { const st = curEx(); const last = st.sets[st.sets.length - 1]; st.sets.push({ w: last.w, r: last.r, done: false }); App.save(); refreshSets(st.sets.length - 1); App.haptic(); },
@@ -543,7 +585,9 @@
       st.sgWhy = v === 'right' ? 'Set 1 felt about right, so stay at ' + App.fmtKg(nw) + ' kg.' : 'Set 1 felt too ' + (v === 'light' ? 'light' : 'heavy') + ', so the next sets are ' + App.fmtKg(nw) + ' kg.';
       App.save(); refreshSets(); App.haptic();
       const cl = host.querySelector('.coachline__text'); if (cl) cl.textContent = st.sgWhy;
-      openRest(st, D.EX[st.id]);
+      const pt = partnerOf(st);
+      if (pt && st.pairRole === 'a' && pt.sets.some((x) => !x.done)) goPartner(false);
+      else { openRest(st, D.EX[st.id]); reveal('.setrow.is-next'); }
     },
     sxEffort(el) {
       const st = el.dataset.s != null ? S().active.steps[Number(el.dataset.s)] : curEx(); if (!st) return;
@@ -565,9 +609,8 @@
     sxSaveSettings() {
       const st = curEx(); const v = ((App.$('#seatIn') || {}).value || '').trim();
       S().exSettings[st.id] = Object.assign({}, S().exSettings[st.id], { seat: v });
-      App.save(); App.closeLayer(); render();
+      App.save(); App.checkAwards(); App.closeLayer(); render();
       App.toast('Saved for next time', 'sliders');
-      App.checkAwards();
     },
     sxPhoto() { pickPhoto(); },
     sxFinish() { finish(); },

@@ -167,7 +167,9 @@ streaks, halfway). Rewards set by someone close to you unlock at weeks 2, 4 and 
 The page itself never scrolls. The app is a fixed frame the size of the visible screen: the
 content scrolls inside it, and the coach's message box and the tab bar are rows underneath,
 so they can't drift when you scroll, bounce at the ends, open the keyboard or fold the phone.
-Sheets, search and the guided session follow the visible area the same way.
+Sheets, search and the guided session follow the visible area the same way. Folding or
+unfolding keeps your place (the coach stays on the latest message), sheets can be dragged
+down to close, and in a session you can tap the step name to go back to any step.
 
 ## Open it on an iPhone
 

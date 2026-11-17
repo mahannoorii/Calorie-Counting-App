@@ -46,7 +46,11 @@
   const COVERS = { adjustable_bench: ['flat_bench'], cable_crossover: ['cable_station'] };
   function kitSet(list) { const k = new Set(list); list.forEach((t) => (COVERS[t] || []).forEach((x) => k.add(x))); return k; }
   function kit() { const g = gym(); return kitSet(g ? g.kit : DB.STANDARD); }
-  function canDo(id, k) { const ex = D.EX[id]; if (!ex) return false; k = k || kit(); return ex.eq.every((t) => k.has(t)); }
+  function canDo(id, k) {
+    const ex = D.EX[id]; if (!ex) return false;
+    const g = gym(); if (g && g.noEx && g.noEx.includes(id)) return false; // "not at this gym" for one move
+    k = k || kit(); return ex.eq.every((t) => k.has(t));
+  }
   function missing(id, k) { const ex = D.EX[id]; k = k || kit(); return ex ? ex.eq.filter((t) => !k.has(t)) : []; }
   function gymName() { const g = gym(); return g ? g.name : 'your gym'; }
   function gymShort() { const g = gym(); return g ? g.short || g.name : 'Your gym'; }
@@ -583,7 +587,9 @@
   function partnerRewards() {
     const plan = S().plan; if (!plan) return [];
     const rw = S().rewards || D.DEFAULT_REWARDS; const per = plan.days.length;
-    return Object.keys(rw).map(Number).filter((w) => w <= plan.weeks && rw[w]).map((w) => ({ week: w, text: rw[w], need: per * w, open: !!S().opened[w] }));
+    // the sessions actually planned by the end of that week (a plan can start mid-week)
+    const need = (w) => plan.slots.filter((sl) => sl.week <= w && !isSkipped(sl)).length || per * w;
+    return Object.keys(rw).map(Number).filter((w) => w <= plan.weeks && rw[w]).map((w) => ({ week: w, text: rw[w], need: need(w), open: !!S().opened[w] }));
   }
   function liftHistory() {
     const by = {};
@@ -600,7 +606,7 @@
     const s = S(); const plan = s.plan; const t = today(); const h = hour();
     const tm = timeOf(plan.time);
     if (s.active) {
-      const ex = s.active.steps.filter((x) => x.t === 'ex'); const n = ex.filter((x) => x.sets.some((y) => y.done)).length;
+      const ex = s.active.steps.filter((x) => x.t === 'ex'); const n = ex.filter((x) => x.skipped || (x.sets.length && x.sets.every((y) => y.done))).length;
       return { kind: 'active', eyebrow: 'In progress', title: sessionName({ key: s.active.key }), sub: n + ' of ' + ex.length + ' exercises done', primary: { label: 'Resume', act: 'resumeSession' } };
     }
     const todays = slotsOn(t).filter((x) => !isDone(x))[0];
@@ -663,6 +669,8 @@
     const s = String(text || '').trim();
     const m = s.match(/\b(?:to|at|from)\s+([A-Z0-9][^,.!?]*?)(?:\s+(?:for|tonight|tomorrow|today|this|on|with|later)\b|[,.!?]|$)/);
     if (m && !STARTERS.test(m[1].split(/\s+/)[0])) return m[1].trim();
+    const lo = s.match(/\b(?:going to|heading to|eating at|dinner at|lunch at|brunch at|at|to|from)\s+([a-z0-9][a-z0-9'’& -]{1,30}?)(?:\s+(?:for|tonight|tomorrow|today|this|on|with|later|again)\b|[,.!?]|$)/i);
+    if (lo && !STARTERS.test(lo[1].split(/\s+/)[0]) && !/^(the gym|gym|work|home|bed|my|a|an|eat|have|get)\b/i.test(lo[1])) return lo[1].trim().replace(/\b([a-z])/g, (x) => x.toUpperCase());
     const caps = s.match(/([A-Z0-9][\w'’&]*(?:\s+(?:[A-Z0-9][\w'’&]*|in|on|at|de|la|&))*)/g) || [];
     const best = caps.map((c) => c.trim().split(/\s+/)).map((w) => { while (w.length && STARTERS.test(w[0])) w.shift(); return w; })
       .filter((w) => w.length > 1 || (w.length === 1 && s.indexOf(w[0]) > 0 && w[0].length > 2))

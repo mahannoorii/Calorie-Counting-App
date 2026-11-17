@@ -67,7 +67,8 @@
   // jumps when you scroll, bounce at the ends, open the keyboard or fold the phone.
   App.render = function () {
     const app = document.getElementById('app');
-    const keep = App.scrollY();
+    const key = App.ob.active ? 'ob:' + App.ob.phase + ':' + App.ob.step : 'tab:' + App.tab;
+    const keep = key === lastKey ? App.scrollY() : 0; lastKey = key;
     if (!S().profile || App.ob.active) {
       if (!S().profile && !App.ob.active) { App.ob.active = true; App.ob.phase = 'welcome'; }
       app.className = 'app app--ob';
@@ -83,6 +84,7 @@
     App.Views.animateBars();
     onScroll();
   };
+  let lastKey = '';
   App.scroller = () => document.querySelector('#app [data-scroller]');
   App.scrollY = () => { const el = App.scroller(); return el ? el.scrollTop : 0; };
   // y: a number, or 'end' for the bottom (the coach thread)
@@ -213,12 +215,28 @@
   // The keyboard and folding change the visible area; the frame follows it exactly, and the
   // page underneath is pinned so iOS can't leave it shifted after the keyboard closes.
   const vv = window.visualViewport;
+  let anchor = null; let atEnd = false;
+  function noteAnchor() {
+    const sc = App.scroller(); if (!sc) return;
+    atEnd = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 60;
+    const top = sc.getBoundingClientRect().top;
+    const el = [...sc.querySelectorAll('.sec, .card, .bubble, .head')].find((x) => x.getBoundingClientRect().bottom > top + 4);
+    anchor = el ? { el, dy: el.getBoundingClientRect().top - top } : null;
+  }
+  document.addEventListener('scroll', (ev) => { if (ev.target && ev.target.hasAttribute && ev.target.hasAttribute('data-scroller')) noteAnchor(); }, { passive: true, capture: true });
+  let lastW = window.innerWidth;
+  function keepPlace() {
+    const sc = App.scroller(); if (!sc) return;
+    if (App.tab === 'coach' && !App.ob.active && (atEnd || App.scrollY() === 0)) { App.scrollTo('end'); return; }
+    if (anchor && anchor.el.isConnected) sc.scrollTop += anchor.el.getBoundingClientRect().top - sc.getBoundingClientRect().top - anchor.dy;
+  }
   function fitViewport() {
     const root = document.documentElement;
     const h = vv ? vv.height : window.innerHeight; const top = vv ? vv.offsetTop : 0;
     root.style.setProperty('--vvh', Math.round(h) + 'px');
     root.style.setProperty('--vvtop', Math.round(top) + 'px');
     root.classList.toggle('kb-open', !!vv && window.innerHeight - h > 120);
+    if (window.innerWidth !== lastW) { lastW = window.innerWidth; requestAnimationFrame(keepPlace); }
   }
   if (vv) { vv.addEventListener('resize', fitViewport); vv.addEventListener('scroll', fitViewport); }
   window.addEventListener('resize', fitViewport);
@@ -229,6 +247,7 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') App.saveNow(); });
   window.addEventListener('pagehide', () => App.saveNow());
 
+  let rewardT = null;
   const fake = (v, label) => ({ dataset: { v: v == null ? '' : String(v), label: label || '' } });
   function after(fn) { setTimeout(fn, App.topLayer() ? 300 : 0); }
 
@@ -301,12 +320,13 @@
       App.toast(D.EX[id].name + ' is in, instead of the ' + App.lc(D.EX[was].name), 'swap');
     },
     openKit() { App.Views.kitSheet(); },
+    scrollTop() { App.scrollTo(0, true); },
     kitToggle(el) {
       const g = E.gym(); const t = el.dataset.v; const i = g.kit.indexOf(t);
       if (i >= 0) g.kit.splice(i, 1); else g.kit.push(t);
       g.edited = true; App.haptic(); App.sound('tick');
       const changed = E.fixPlanForKit();
-      App.save(); App.Views.kitSheet(true);
+      App.save(); App.Views.kitSheet(true); App.render();
       if (changed.length) { App.toast('Plan updated: ' + App.lc(D.EX[changed[0][1]].name) + (changed.length > 1 ? ' and ' + (changed.length - 1) + ' more' : '') + ' swapped in', 'swap'); changed.forEach((c) => App.Coach.note(D.EX[c[0]].name + ' swapped for ' + App.lc(D.EX[c[1]].name))); }
     },
     kitHas(el) {
@@ -361,7 +381,7 @@
     openDinners() { E.track('dinners'); App.Views.dinnersSheet(); },
     shuffleDinners(el) {
       S().dinnerSeed++; App.save(); App.haptic(); App.sound('tick');
-      if (el.dataset.v === 'sheet') App.Views.dinnersSheet(true); else { App.render(); App.toast('New dinners picked', 'shuffle'); }
+      if (el.dataset.v === 'sheet') { App.Views.dinnersSheet(true); App.render(); } else { App.render(); App.toast('New dinners picked', 'shuffle'); }
     },
     openMeal(el) { App.Views.mealSheet(el.dataset.v); },
     openMoment(el) { E.track('moment:' + el.dataset.v); App.Views.momentSheet(el.dataset.v); },
@@ -434,7 +454,7 @@
   Object.assign(App.IN, {
     search(el) { App.Views.renderSearch(el.value); },
     libQ(el) { App.Views.lib.q = el.value; App.Views.renderLib(); },
-    reward(el) { S().rewards = Object.assign({}, S().rewards || D.DEFAULT_REWARDS); S().rewards[el.dataset.w] = el.value; App.save(); },
+    reward(el) { S().rewards = Object.assign({}, S().rewards || D.DEFAULT_REWARDS); S().rewards[el.dataset.w] = el.value; App.save(); clearTimeout(rewardT); rewardT = setTimeout(() => App.render(), 400); },
   });
 
   // ── Example progress (prototype tool) ─────────────────────────────────────

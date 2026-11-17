@@ -68,7 +68,7 @@
   }
   function header(title, eyebrow) {
     const p = S().profile;
-    return '<div class="compact" aria-hidden="true">' + esc(title) + '</div>' +
+    return '<button class="compact" data-act="scrollTop" aria-label="Back to top">' + esc(title) + '</button>' +
       '<header class="head"><div class="head__text">' + (eyebrow ? '<div class="head__eyebrow">' + esc(eyebrow) + '</div>' : '') + '<h1 class="head__title">' + esc(title) + '</h1></div>' +
       '<button class="avatar" data-act="openProfile" aria-label="Profile and settings">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</button></header>' +
       '<button class="searchbar" data-act="openSearch">' + icon('search') + '<span>Search</span></button>';
@@ -244,7 +244,8 @@
   const FOOD_WORD = { on: 'On track', part: 'Partly', off: 'Off track' };
   function eatView() {
     const w = E.week();
-    let h = header('Eat', App.fmtKg(w.eat) + ' of ' + w.eatMax + ' good days this week') + '<div class="page">';
+    const halves = (n) => (Math.floor(n) || (n % 1 ? '' : '0')) + (n % 1 ? '½' : '');
+    let h = header('Eat', halves(w.eat) + ' of ' + w.eatMax + ' good days this week') + '<div class="page">';
     h += cols('<section class="sec">' + foodCard() + '</section>' + sec('Eating out', '', eatOutBox() + placesList()),
       sec('This week’s dinners', '<button class="sec__link" data-act="shuffleDinners">Shuffle</button>', dinnersList()) +
       sec('Big meal coming up?', '', momentsList()));
@@ -334,7 +335,7 @@
     return t;
   }
   function dockRepliesHtml(where) {
-    if (App.Coach.isBusy() || coachTyping) return '';
+    if (App.Coach.isBusy() || coachTyping) return '<div class="replies replies--wait" aria-hidden="true"></div>';
     const m = App.Coach.latest();
     if (m && m.replies && m.replies.length) return '<div class="replies">' + m.replies.map((r, i) => replyBtn(m, r, i)).join('') + '</div>';
     return '<div class="replies replies--topics">' + topics(where).map(([k, label]) => '<button class="reply" data-act="coachTopic" data-v="' + k + '" data-label="' + esc(label) + '">' + esc(label) + '</button>').join('') + '</div>';
@@ -386,8 +387,7 @@
     searchEl.innerHTML = '<div class="search__bar"><label class="search__field">' + icon('search') + '<span class="vh">Search</span><input id="searchIn" type="search" placeholder="Search" autocomplete="off" enterkeyhint="search" data-in="search" data-enter="searchEnter"></label><button class="search__cancel" data-act="closeSearch">Cancel</button></div>' +
       '<div class="search__body" data-search-body>' + searchBody('') + '</div>';
     document.body.appendChild(searchEl);
-    document.body.style.overflow = 'hidden';
-    setTimeout(() => { const i = App.$('#searchIn'); if (i) i.focus(); }, 30);
+    const si = App.$('#searchIn'); if (si) si.focus();
   }
   function closeSearch() { if (!searchEl) return; searchEl.remove(); searchEl = null; document.body.style.overflow = ''; }
   function resultCell(it) { return cell({ act: 'searchGo', v: it.id, tile: [it.icon, TYPE_BG[it.type] || 'bg-ink'], title: esc(it.title), sub: it.sub ? esc(it.sub) : '' }); }
@@ -534,7 +534,7 @@
   function libResults() {
     const k = E.kit(); const inPlan = E.planIds();
     const words = lib.q.toLowerCase().trim().split(/\s+/).filter(Boolean);
-    let ids = Object.keys(D.EX).filter((id) => (lib.area === 'all' || areaOf(id) === lib.area) && (!lib.here || E.canDo(id, k)));
+    let ids = Object.keys(D.EX).filter((id) => (words.length || lib.area === 'all' || areaOf(id) === lib.area) && (!lib.here || E.canDo(id, k)));
     if (words.length) {
       ids = ids.filter((id) => { const ex = D.EX[id]; const hay = (ex.name + ' ' + (ex.aka || []).join(' ') + ' ' + ex.focus + ' ' + (ex.muscles || []).concat(ex.muscles2 || []).map((m) => D.MUSCLES[m]).join(' ') + ' ' + ex.eq.map((t) => D.EQUIP_NAME[t]).join(' ')).toLowerCase(); return words.every((w) => hay.indexOf(w) >= 0); });
       ids.sort((a, b) => (D.EX[b].name.toLowerCase().indexOf(words[0]) === 0) - (D.EX[a].name.toLowerCase().indexOf(words[0]) === 0) || (inPlan.has(b) - inPlan.has(a)));
@@ -782,7 +782,7 @@
     openCoachAI() { coachAISheet(); },
     aiSaveKey(el) {
       const inp = App.$('#aiKey'); const k = ((inp || {}).value || '').trim();
-      if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(k)) { App.toast('That doesn’t look like a Claude key. It starts with sk-ant-', 'alert'); return; }
+      if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(k)) { App.toast('That doesn’t look like a Claude key. Keys start with sk‑ant‑', 'alert'); return; }
       App.AI.setKey(k); el.disabled = true; el.textContent = 'Testing…';
       App.AI.test().then((r) => {
         if (!r.ok) { App.AI.setKey(''); el.disabled = false; el.textContent = 'Save and test'; App.toast(r.text, 'alert'); return; }

@@ -889,3 +889,86 @@ input[type="date"].input { display: flex; align-items: center; }
   }
   .sx__body:has(.sx__panes), .sx:has(.sx__panes) .sx__foot-inner { max-width: none; }
 }
+
+/* ── Polish ───────────────────────────────────────────────────────────── */
+.nowrap { white-space: nowrap; }
+/* the session slides in when it opens, not on every step */
+.sx { animation: none; }
+.sx.sx--in { animation: sheetUp 0.5s var(--ease) both; }
+.sx__title { display: block; width: 100%; text-align: center; padding: 2px 0; border-radius: 10px; }
+.sx__title:active { background: var(--fill); }
+.sx__step .ic-sm { display: inline-block; width: 12px; height: 12px; vertical-align: -1px; margin-left: 2px; }
+/* the compact title bar: tappable (back to the top) only while it's showing */
+.compact { width: 100%; border-left: 0; border-right: 0; border-top: 0; color: var(--label); font: inherit; font-weight: 600; }
+body.is-scrolled .compact { pointer-events: auto; }
+/* toasts never swallow a tap */
+.toast { pointer-events: none; }
+/* the coach's reply row keeps its height while it types, so the box doesn't move */
+.replies--wait { height: 46px; }
+.upnext__sub { text-wrap: pretty; }
+/* bigger tap targets without changing the look */
+.icon-btn, .send, .val__btn, .sheet__done, .sec__link { position: relative; }
+.icon-btn::after, .send::after { content: ""; position: absolute; inset: -6px; }
+.val__btn { height: 44px; }
+.val .val__btn { width: 34px; }
+.sheet__done { min-height: 44px; display: inline-flex; align-items: center; }
+.sec__link::after { content: ""; position: absolute; inset: -12px -8px; }
+/* dark: sheets sit a step above the page, over a darker scrim */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .sheet { background: #1c1c1e; }
+  :root:not([data-theme="light"]) .sheet .group, :root:not([data-theme="light"]) .sheet .card, :root:not([data-theme="light"]) .sheet .callout:not([class*="callout--"]) { background: #2c2c2e; }
+  :root:not([data-theme="light"]) .layer__scrim { background: rgba(0, 0, 0, 0.6); }
+}
+:root[data-theme="dark"] .sheet { background: #1c1c1e; }
+:root[data-theme="dark"] .sheet .group, :root[data-theme="dark"] .sheet .card, :root[data-theme="dark"] .sheet .callout:not([class*="callout--"]) { background: #2c2c2e; }
+:root[data-theme="dark"] .layer__scrim { background: rgba(0, 0, 0, 0.6); }
+/* onboarding: choosing an option doesn't replay the step's entrance */
+.ob__body.is-still { animation: none; }
+/* short screens (the folded Duo): in a session the sets come straight after the title */
+@media (max-height: 760px) and (max-width: 759px) {
+  .sx__pane > [data-sets] { order: 2; }
+  .sx__pane > [data-firstfeel], .sx__pane > [data-effort] { order: 3; }
+  .sx__pane > .coachline { order: 4; }
+  .sx__pane > .sx-note { order: 5; }
+  .sx__pane > .photo { order: 9; }
+  .sx__pane > .group--tiles { order: 10; }
+}
+/* sheets can be dragged down to close */
+.sheet.is-dragging { transition: none; animation: none; }
+.sheet.is-settling { transition: transform 0.25s var(--ease); }
+.sx__pane > [data-firstfeel]:empty, .sx__pane > [data-effort]:empty, .sx__body > [data-firstfeel]:empty, .sx__body > [data-effort]:empty { display: none; }
+
+/* unfolded: the session's buttons and rest bar respect the side status bar and line up with
+   the right-hand pane; the empty space beside them never blocks a tap */
+.sx__foot { left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); }
+.sx__foot-inner { pointer-events: none; }
+.sx__foot-inner > * { pointer-events: auto; }
+.restbar button { position: relative; }
+.restbar button::after { content: ""; position: absolute; inset: -6px -2px; }
+.tick, .avatar { position: relative; }
+.tick::after, .avatar::after { content: ""; position: absolute; inset: -4px; }
+.coachhead__sub { padding: 4px 0; margin: -4px 0; }
+.cell__value.t-green { color: var(--green-text); }
+@media (min-width: 640px) {
+  /* floating sheets keep their rounded corners at the bottom too */
+  .sheet { overflow: hidden; }
+  .sx__foot-inner { max-width: 680px; }
+  .search__bar, .search__body { max-width: var(--content-max); }
+  .ob__foot-inner { max-width: calc(620px - 2 * var(--g)); }
+  .upnext__sub { max-width: 34ch; }
+}
+@media (min-width: 760px) {
+  /* one width per screen: the session's bar and steps match the content */
+  .sx__nav, .sx__bar { max-width: 680px; }
+  .sx:has(.sx__panes) .sx__nav, .sx:has(.sx__panes) .sx__bar { max-width: 1040px; }
+  .sx:has(.sx__panes) .sx__foot-inner { padding-left: 0; }
+  .sx:has(.sx__panes) .sx__foot-inner > :first-child { margin-left: calc(50% + 14px); }
+  /* the coach: header, thread and message box share one column */
+  .coachview .coachhead { padding-left: max(var(--g), calc((100% - 760px) / 2 + 14px)); padding-right: max(var(--g), calc((100% - 760px) / 2 + 14px)); }
+  .dock__inner { max-width: 760px; }
+  .tabbar__inner { max-width: 760px; }
+}
+@media (min-width: 760px) and (max-height: 760px) {
+  .gymmap { max-height: 250px; }
+}
+.chips--scroll[aria-label="Body area"] + .group { margin-top: 10px; }

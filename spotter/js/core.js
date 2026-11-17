@@ -308,7 +308,21 @@
     document.body.appendChild(el);
     layers.push({ el, onClose: opts.onClose });
     document.body.classList.add('has-layer');
+    const sh = el.querySelector('.sheet'); if (sh) dragToClose(sh);
     return el;
+  }
+  // Drag a sheet down by its top bar to close it, like iOS.
+  function dragToClose(sh) {
+    let y0 = null; let dy = 0;
+    const grab = (ev) => { const t = ev.target; return t.closest && t.closest('.sheet__grab, .sheet__head') && !t.closest('button, a, input'); };
+    sh.addEventListener('touchstart', (ev) => { if (!grab(ev) || ev.touches.length > 1) return; y0 = ev.touches[0].clientY; dy = 0; sh.classList.add('is-dragging'); }, { passive: true });
+    sh.addEventListener('touchmove', (ev) => { if (y0 == null) return; dy = Math.max(0, ev.touches[0].clientY - y0); sh.style.transform = 'translateY(' + dy + 'px)'; }, { passive: true });
+    const end = () => {
+      if (y0 == null) return; y0 = null; sh.classList.remove('is-dragging');
+      if (dy > Math.min(140, sh.offsetHeight * 0.25)) { closeLayer(); return; }
+      sh.classList.add('is-settling'); sh.style.transform = ''; setTimeout(() => sh.classList.remove('is-settling'), 260);
+    };
+    sh.addEventListener('touchend', end); sh.addEventListener('touchcancel', end);
   }
   // iOS-style sheet: centred title, Done on the right.
   function sheet(title, body, opts) {
@@ -481,6 +495,12 @@
     const t = App.S.settings.theme;
     if (t === 'light' || t === 'dark') { document.documentElement.setAttribute('data-theme', t); themeSet = true; }
     else if (themeSet) { document.documentElement.removeAttribute('data-theme'); themeSet = false; }
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+      if (!m.dataset.media) m.dataset.media = m.getAttribute('media') || '';
+      const own = /dark/.test(m.dataset.media) ? '#000000' : '#f2f2f7';
+      if (t === 'light' || t === 'dark') { m.setAttribute('content', t === 'dark' ? '#000000' : '#f2f2f7'); m.removeAttribute('media'); }
+      else { m.setAttribute('content', own); if (m.dataset.media) m.setAttribute('media', m.dataset.media); }
+    });
   }
 
   let wake = null;
