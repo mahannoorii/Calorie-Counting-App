@@ -42,7 +42,7 @@
     o = o || {};
     const sg = E.suggest(id, slotId, o);
     const sets = []; for (let i = 0; i < n; i++) sets.push({ w: sg.w, r: sg.r, done: false });
-    return { t: 'ex', id, base, sets, effort: null, firstFeel: null, mode: sg.mode, sgTitle: sg.title, sgWhy: sg.why, howOpen: !E.lastPerf(id), reps: o.reps || null, rest: o.rest || null, pair: o.pair || null, pairRole: o.pairRole || null, deload: !!o.deload };
+    return { t: 'ex', id, base, sets, effort: null, firstFeel: null, mode: sg.mode, sgTitle: sg.title, sgWhy: sg.why, howOpen: !E.lastPerf(id), reps: o.reps || null, rest: o.rest || null, pair: o.pair || null, pairRole: o.pairRole || null, deload: !!o.deload, cap: o.cap || null, note: o.note || null };
   }
   function partnerOf(st) { const a = S().active; return st && st.pair && a ? a.steps.find((x) => x !== st && x.t === 'ex' && x.pair === st.pair) || null : null; }
   function ssTag(st) { return 'ABCDEFG'.charAt(Number(st.pair.slice(1)) - 1) + (st.pairRole === 'a' ? '1' : '2'); }
@@ -157,6 +157,7 @@
       (partner ? '<button class="ssbar" data-act="sxGoPartner"><span class="sstag">' + ssTag(st) + '</span><span class="ssbar__text"><b>Superset with the ' + esc(App.lc(D.EX[partner.id].name)) + '.</b> ' + (st.pairRole === 'a' ? 'One set here, then straight there. Rest after both.' : 'Rest after this one, then back to the start.') + '</span>' + icon('swap', 'ic-sm') + '</button>' : '') +
       '</div><div class="sx__pane">' +
       coachLine(title, esc(st.sgWhy)) +
+      (st.note || st.cap ? '<div class="callout callout--blue">' + icon('shield') + '<div><b>Coach’s note:</b> ' + esc([st.note, st.cap && D.EX[st.id].unit === 'kg' ? 'Keep it at ' + App.fmtKg(st.cap) + ' kg or under.' : ''].filter(Boolean).join(' ')) + '</div></div>' : '') +
       '<div data-sets>' + setsHtml(st, ex) + '</div>' +
       '<div data-firstfeel>' + firstFeelHtml(st, ex) + '</div>' +
       '<div data-effort>' + effortsHtml(st) + '</div>' +
@@ -548,7 +549,7 @@
     sxMood(el) { const l = S().log[S().log.length - 1]; if (l) l.mood = el.dataset.v; App.save(); App.$$('[data-act="sxMood"]').forEach((b) => b.classList.toggle('is-on', b === el)); App.haptic(); },
     sxDoneClose() {
       const entry = S().log[S().log.length - 1];
-      close(); App.tab = 'today'; App.entering = true; App.render(); window.scrollTo(0, 0);
+      close(); App.tab = 'today'; App.entering = true; App.render(); App.scrollTo(0);
       if (entry) setTimeout(() => { debrief(entry); }, 700);
     },
     restAdd() { if (rest) { rest.end += 15000; rest.total += 15; App.haptic(); } },

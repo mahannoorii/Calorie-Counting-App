@@ -51,7 +51,8 @@
   function shell() {
     const t = App.tab;
     const body = t === 'train' ? trainView() : t === 'eat' ? eatView() : t === 'coach' ? coachView() : todayView();
-    return '<div class="tabview' + (App.entering ? ' is-entering' : '') + '" data-tab="' + t + '">' + body + '</div>' + tabbar();
+    return '<div class="scroller" data-scroller><div class="tabview' + (App.entering ? ' is-entering' : '') + '" data-tab="' + t + '">' + body + '</div></div>' +
+      (t === 'coach' ? '<div class="dock"><div class="dock__inner">' + dockHtml('tab') + '</div></div>' : '') + tabbar();
   }
   function tabbar() {
     return '<nav class="tabbar" aria-label="Main"><div class="tabbar__inner">' + TABS.map(([id, label, ic]) =>
@@ -284,8 +285,7 @@
   function coachView() {
     return '<div class="coachview"><header class="coachhead">' + avatarCoach(true) + '<div class="coachhead__main"><div class="coachhead__name">Coach</div>' + (App.AI.ready() ? '<button class="coachhead__sub" data-act="openCoachAI">Your trainer · ' + esc(App.AI.modelName()) + '</button>' : window.claude ? '<div class="coachhead__sub">Your trainer</div>' : '<button class="coachhead__sub coachhead__sub--off" data-act="openCoachAI">Scripted replies · Turn on Claude</button>') + '</div>' +
       '<button class="avatar" data-act="openProfile" aria-label="Profile and settings">' + esc((firstName() || '?').charAt(0).toUpperCase()) + '</button></header>' +
-      '<div class="thread" data-coach-thread aria-live="polite">' + threadHtml() + '</div></div>' +
-      '<div class="dock"><div class="dock__inner">' + dockHtml('tab') + '</div></div>';
+      '<div class="thread" data-coach-thread aria-live="polite">' + threadHtml() + '</div></div>';
   }
   const shownMsgs = new Set();
   function threadHtml() {
@@ -357,7 +357,7 @@
     const slot = App.$('[data-coach-slot]'); if (slot) slot.innerHTML = coachCard();
     const sheetThread = App.$('.sheet [data-coach-thread]');
     if (sheetThread) { const b = sheetThread.closest('.sheet__body'); if (b) b.scrollTo({ top: b.scrollHeight, behavior: App.reduceMotion() ? 'auto' : 'smooth' }); }
-    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: App.reduceMotion() ? 'auto' : 'smooth' });
+    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) App.scrollTo('end', true);
     if ((App.tab === 'coach' && !App.Session.isOpen()) || sheetThread) App.Coach.markRead();
     refreshBadge();
     const dot = App.$('.sx__coach'); if (dot) dot.innerHTML = icon('coach') + (App.Coach.unread() && !sheetThread ? '<span class="dot-new"></span>' : '');
@@ -367,7 +367,7 @@
   function updateBubble(m) {
     App.$$('.bubble[data-mid="' + m.id + '"]').forEach((el) => { el.textContent = m.text; });
     const sb = App.$('.sheet [data-coach-thread]'); const b = sb && sb.closest('.sheet__body'); if (b) b.scrollTop = b.scrollHeight;
-    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) window.scrollTo(0, document.documentElement.scrollHeight);
+    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) App.scrollTo('end');
   }
   function coachSheet() {
     const L = App.sheet('Coach', '<div class="thread thread--sheet" data-coach-thread aria-live="polite">' + threadHtml() + '</div>', { tall: true, foot: dockHtml('session') });
@@ -418,7 +418,7 @@
   function ssTag(e) { return e.pair ? '<span class="sstag">' + 'ABCDEFG'.charAt(Number(e.pair.slice(1)) - 1) + (e.pairRole === 'a' ? '1' : '2') + '</span>' : ''; }
   function exRow(e, slotId) {
     const ex = D.EX[e.id]; const sg = E.suggest(e.id, slotId, e);
-    return cell({ act: 'openExercise', v: e.id, art: ex.art, title: ssTag(e) + esc(ex.name), sub: e.sets + ' sets · ' + repsText(ex, e.reps) + (e.pairRole === 'a' ? ' · then straight to the next' : ''), value: esc(sg.mode === 'find' ? 'Find it' : sg.title) });
+    return cell({ act: 'openExercise', v: e.id, art: ex.art, title: ssTag(e) + esc(ex.name), sub: e.sets + ' sets · ' + repsText(ex, e.reps) + (e.pairRole === 'a' ? ' · then straight to the next' : '') + (e.cap && ex.unit === 'kg' ? ' · max ' + App.fmtKg(e.cap) + ' kg' : '') + (e.note ? ' · ' + esc(e.note) : ''), value: esc(sg.mode === 'find' ? 'Find it' : sg.title) });
   }
   function previewSheet(id) {
     const sl = E.slotById(id); if (!sl) return;
@@ -745,6 +745,7 @@
         cell({ tile: ['history', 'bg-ink'], title: 'This month', sub: u.msgs + ' ' + App.plural(u.msgs, 'message') + ' · about US$' + u.usd.toFixed(2) }),
       ], true) +
         '<div class="sec"><div class="sec__label">Model</div><div class="seg">' + models + '</div><p class="fn">' + esc(App.AI.MODELS[st.model].note) + '</p></div>' +
+        '<div class="sec"><div class="sec__label">What your coach remembers</div>' + (App.AI.notes().length ? '<div class="group">' + App.AI.notes().map((n, i) => '<div class="cell"><span class="cell__main"><span class="cell__title" style="white-space:normal">' + esc(n.text) + '</span><span class="cell__sub">' + esc(fmtDate(App.iso(new Date(n.at)), 'dm')) + '</span></span><button class="icon-btn" data-act="aiNoteDel" data-v="' + i + '" aria-label="Forget this">' + icon('x') + '</button></div>').join('') + '</div>' : '<p class="fn">Nothing yet. Tell the coach about injuries, a physio’s advice or what you like, and it keeps a note for every chat after.</p>') + '</div>' +
         '<div class="inrow" style="flex-wrap:wrap"><button class="btn btn--sm btn--tinted" data-act="aiTest">Test it</button><button class="btn btn--sm btn--danger" data-act="aiForgetKey">Remove key</button></div>';
     }
     h += '<p class="fn">The key stays on this phone, in Spotter’s own storage, and isn’t included in backup codes. Messages go straight from your phone to Anthropic. Anyone using this phone unlocked could use it, so set a monthly spend limit in the Anthropic console.</p>';
@@ -794,6 +795,7 @@
       App.AI.test().then((r) => { App.toast(r.ok ? 'Working. Claude answered' : r.text, r.ok ? 'check' : 'alert'); App.replaceSheet(coachAIBody()); })
         .catch(() => { el.disabled = false; el.textContent = 'Test it'; App.toast('Couldn’t load Claude. Check you’re online', 'alert'); });
     },
+    aiNoteDel(el) { App.AI.forgetNote(Number(el.dataset.v)); App.replaceSheet(coachAIBody()); App.haptic(); },
     aiForgetKey() { App.AI.setKey(''); App.replaceSheet(coachAIBody()); App.render(); App.toast('Key removed from this phone'); },
   });
   App.Views = {

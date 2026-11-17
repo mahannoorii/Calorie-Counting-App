@@ -192,6 +192,7 @@
     openMenu: (v) => { const [name, cu] = String(v).split('|'); App.Views.menuSheet(name, cu); },
     cuisine: (v) => { const [name, cu] = String(v).split('|'); later(() => restaurantPicks(name, cu)); return null; },
     aiSetup: () => { App.ACT.openCoachAI(); },
+    aiUndo: () => { if (App.AI.undo()) { note('Undid the coach’s last changes'); App.render(); } else note('Nothing to undo'); App.onCoachMessage && App.onCoachMessage(null); },
     lock: (v) => { const [name, cu] = String(v).split('|'); App.lockMeal(name, cu, true); return ['locked']; },
   };
 
@@ -327,8 +328,9 @@
     const res = await App.AI.reply({ text: (t) => { if (t.trim()) show(t); } });
     busy = false; App.onCoachTyping && App.onCoachTyping(false);
     const text = res.text || (res.error ? '' : res.changed.length ? 'Done.' : '');
-    if (m) { m.text = text || (res.error || '…'); m.replies = res.replies || []; m.card = res.card || null; delete m.live; if (res.error && text) m.text += '\n\n' + res.error; }
-    else if (text || res.error) m = push({ from: 'coach', text: text || res.error, replies: res.replies || [], card: res.card || null, urgent: false });
+    const replies = (res.replies || []).concat(res.undo ? [a('Undo changes', 'aiUndo')] : []);
+    if (m) { m.text = text || (res.error || '…'); m.replies = replies; m.card = res.card || null; delete m.live; if (res.error && text) m.text += '\n\n' + res.error; }
+    else if (text || res.error) m = push({ from: 'coach', text: text || res.error, replies, card: res.card || null, urgent: false });
     res.changed.forEach((c) => note(c));
     App.save();
     if (res.changed.length && App.tab !== 'coach') App.render();

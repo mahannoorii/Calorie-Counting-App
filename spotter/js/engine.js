@@ -334,6 +334,32 @@
     const t = today(); const log = S().log; const lastLog = log.length ? log[log.length - 1].date : '';
     return openSlots().filter((s) => slotDate(s) < t && diffDays(slotDate(s), t) <= 4 && slotDate(s) > lastLog).pop() || null;
   }
+  // Re-plan the days still to come (the coach's set_schedule): which weekdays, the order the
+  // sessions rotate in, and when the plan ends. Done sessions and the past are left alone.
+  function reschedule(o) {
+    o = o || {}; const s = S(); const plan = s.plan; const t = today();
+    const from = o.from && o.from > t ? o.from : t;
+    const order = (o.order || plan.order).filter((k) => plan.sessions[k]);
+    const days = (o.days || plan.days).slice().sort((a, b) => a - b);
+    const end = o.end || plan.end;
+    if (!order.length || !days.length) return;
+    const keep = plan.slots.filter((sl) => isDone(sl) || slotDate(sl) < from);
+    plan.slots.filter((sl) => !keep.includes(sl)).forEach((sl) => { delete s.moves[sl.id]; delete s.skips[sl.id]; delete s.trims[sl.id]; delete s.eases[sl.id]; });
+    const taken = new Set(keep.map(slotDate)); const ids = new Set(keep.map((sl) => sl.id));
+    let n = 0;
+    if (o.startWith && order.includes(o.startWith)) n = order.indexOf(o.startWith);
+    else { const last = s.log.slice().reverse().find((l) => order.includes(l.key)); n = last ? order.indexOf(last.key) + 1 : 0; }
+    const slots = keep.slice();
+    for (let d = from; d <= end; d = addDays(d, 1)) {
+      if (!days.includes(dow(d)) || taken.has(d)) continue;
+      const key = order[n % order.length]; n++;
+      let id = d + key; while (ids.has(id)) id += '+';
+      ids.add(id); slots.push({ id, date: d, key, week: Math.floor(diffDays(weekStart(plan.start), d) / 7) + 1 });
+    }
+    slots.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    Object.assign(plan, { slots, order, days, end, weeks: Math.max(1, Math.ceil((diffDays(weekStart(plan.start), end) + 1) / 7)) });
+    if (s.profile) { s.profile.days = days.slice(); s.profile.perWeek = days.length; }
+  }
   function slotById(id) { const plan = S().plan; return plan ? plan.slots.find((s) => s.id === id) : null; }
   function freeDayAfter(d, n) { let x = d; for (let i = 0; i < 10; i++) { x = addDays(x, 1); if (!slotsOn(x).length) { if (!n) return x; n--; } } return addDays(d, 1); }
   function sessionName(slot) { const s = S().plan.sessions[slot.key]; return s ? s.name : 'Session'; }
@@ -351,9 +377,10 @@
     let list = items.map((it) => {
       const base = rot && it.alt ? it.alt : it.id;
       const id = S().swaps[base] || base;
-      let sets = phase.sets || it.sets || 3;
-      if (phase.deload) sets = Math.max(2, (it.sets || 3) - 1);
-      return { id, base, sets: trim ? 2 : sets, reps: it.reps || null, rest: trim ? null : it.rest || null, role: it.role || 'acc', pair: trim ? null : it.pair || null, pairRole: trim ? null : it.pairRole || null, deload: !!phase.deload };
+      // sets the coach chose stand, whatever the phase; a lighter week still takes one off
+      let sets = it.coach ? it.sets || 3 : phase.sets || it.sets || 3;
+      if (phase.deload) sets = Math.max(it.coach ? 1 : 2, (it.sets || 3) - 1);
+      return { id, base, sets: trim ? Math.min(2, sets) : sets, reps: it.reps || null, rest: trim ? null : it.rest || null, role: it.role || 'acc', pair: trim ? null : it.pair || null, pairRole: trim ? null : it.pairRole || null, deload: !!phase.deload, cap: it.cap || null, note: it.note || null };
     });
     if (trim) list = list.slice(0, trim);
     return list;
@@ -387,7 +414,15 @@
     return e === 'legs' ? legs : !legs;
   }
   // What to lift today, and the reason in one sentence. o: {reps, deload} from the plan.
+  // A weight limit the coach set (a physio's advice, an injury) always wins.
   function suggest(id, slotId, o) {
+    const sg = suggestRaw(id, slotId, o); const cap = o && o.cap;
+    if (cap && D.EX[id] && D.EX[id].unit === 'kg' && !D.EX[id].assist && sg.w > cap) {
+      return Object.assign({}, sg, { w: cap, mode: 'same', title: App.fmtKg(cap) + ' kg', why: sg.why.replace(/ (Up one step|Same weight[^.]*)\.$/, '') + ' Capped at ' + App.fmtKg(cap) + ' kg for now.' });
+    }
+    return sg;
+  }
+  function suggestRaw(id, slotId, o) {
     const ex = D.EX[id]; const [lo, hi] = (o && o.reps) || ex.reps || [10, 12];
     const last = lastPerf(id); const step = stepOf(id);
     // a target the coach set, until the next time this exercise is logged
@@ -683,7 +718,7 @@
   App.E = {
     gym, kit, kitSet, canDo, missing, kitLayers, gymFromDirectory, customGym, legacyGym, gymName, gymShort, gymsNear, suburbPoint, findGyms, km, levelOf, styleOf, dayOptions, minOptions,
     buildPlan, splitFor, SPLITS, phaseFor, timeOf, cardioOptions, swapsFor, planIds, regionOf, fixPlanForKit,
-    slotDate, isDone, isSkipped, allSlots, openSlots, slotsOn, nextOpen, missed, slotById, freeDayAfter, sessionName, sessionKeys, sessionTag, exercisesFor,
+    slotDate, isDone, isSkipped, reschedule, allSlots, openSlots, slotsOn, nextOpen, missed, slotById, freeDayAfter, sessionName, sessionKeys, sessionTag, exercisesFor,
     lastPerf, stepOf, effortWord, suggest, predictNext, prFor, prText, bestOf, prCount,
     sessionsInWeek, plannedInWeek, targetInWeek, foodScore, week, streakWeeks, totals, partnerRewards, liftHistory, FOOD_TARGET,
     upNext, coachTriggers, cuisines, dinners, detectCuisine, extractPlace,

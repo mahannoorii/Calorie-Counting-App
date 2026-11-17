@@ -370,7 +370,7 @@
     const steps = App.$$('[data-bstep]');
     const gap = App.reduceMotion() ? 120 : 480;
     steps.forEach((el, i) => setTimeout(() => { el.classList.add('is-done'); App.sound('tick'); App.haptic(); }, 400 + i * gap));
-    setTimeout(() => { ob.phase = 'reveal'; App.render(); window.scrollTo(0, 0); App.sound('done'); App.haptic('success'); }, 400 + steps.length * gap + 450);
+    setTimeout(() => { ob.phase = 'reveal'; App.render(); App.scrollTo(0); App.sound('done'); App.haptic('success'); }, 400 + steps.length * gap + 450);
   }
 
   // ── The reveal: the plan at a glance, how your answers shaped it, then into the app ─
@@ -442,7 +442,7 @@
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const toggle = (arr, v) => { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); };
-  function rerender() { const y = window.scrollY; App.render(); window.scrollTo(0, y); }
+  function rerender() { App.render(); }
   function refreshFoot() {
     const st = visibleSteps(ob.p)[ob.step];
     const btn = App.$('[data-act="obNext"]'); if (btn) { btn.disabled = !st.valid(ob.p); btn.textContent = ob.step === visibleSteps(ob.p).length - 1 ? (ob.editing ? 'Update my plan' : 'Build my plan') : st.optional && st.optional(ob.p) ? 'Skip' : 'Continue'; }
@@ -456,7 +456,7 @@
     p.gymId = p.gym.id; p.adding = false;
   }
   Object.assign(App.ACT, {
-    obStart() { ob.p = ob.p || blank(); ob.phase = 'steps'; ob.step = 0; ob.dir = 1; App.render(); window.scrollTo(0, 0); },
+    obStart() { ob.p = ob.p || blank(); ob.phase = 'steps'; ob.step = 0; ob.dir = 1; App.render(); App.scrollTo(0); },
     obDemoAsk() {
       App.openLayer('<div class="dialog"><div class="dialog__icon">' + icon('sparkle') + '</div><h2 class="dialog__title">Try it as…</h2><p class="dialog__text">Example answers fill everything in, so you can see the plan straight away.</p>' +
         '<button class="btn" data-act="obDemo" data-v="new">Someone new to the gym</button><button class="btn btn--tinted" data-act="obDemo" data-v="lifter">An experienced lifter</button><button class="btn btn--plain" data-act="closeLayer">Cancel</button></div>', { dialog: true });
@@ -468,7 +468,7 @@
         if (App.S.profile) { ob.editing = false; ob.active = false; App.render(); return; }
         ob.phase = 'welcome'; App.render(); return;
       }
-      ob.step--; ob.dir = -1; App.render(); window.scrollTo(0, 0);
+      ob.step--; ob.dir = -1; App.render(); App.scrollTo(0);
     },
     obNext() {
       const steps = visibleSteps(ob.p); const st = steps[ob.step];
@@ -476,7 +476,7 @@
       App.haptic();
       if (st.id === 'experience') fitToLevel(ob.p);
       if (ob.step >= steps.length - 1) return App.ACT.obFinish();
-      ob.step++; ob.dir = 1; App.render(); window.scrollTo(0, 0);
+      ob.step++; ob.dir = 1; App.render(); App.scrollTo(0);
     },
     obFinish() {
       const prev = App.S.profile; const p = ob.p;
@@ -488,7 +488,7 @@
       App.checkAwards(true);
       App.S.rewards = App.S.rewards || Object.assign({}, D.DEFAULT_REWARDS);
       App.saveNow();
-      ob.active = true; ob.phase = 'build'; App.render(); window.scrollTo(0, 0);
+      ob.active = true; ob.phase = 'build'; App.render(); App.scrollTo(0);
       runBuild();
     },
     obOpt(el) {
@@ -522,7 +522,7 @@
         if (!p.mins || p.mins < 60) p.mins = 60;
         ob.imp = imp; ob.p = p; ob.editing = !!pr; ob.active = true; ob.phase = 'steps'; ob.dir = 1;
         ob.step = pr ? Math.max(0, visibleSteps(p).findIndex((x) => x.id === 'program')) : 0;
-        App.closeLayer(true); App.render(); window.scrollTo(0, 0);
+        App.closeLayer(true); App.render(); App.scrollTo(0);
         App.sound('set'); App.haptic('success');
         App.toast(imp.count + ' sessions ready to bring over', 'check');
       }).catch(() => { el.value = ''; App.toast('That file didn’t look like an Iron Log backup', 'alert'); });
