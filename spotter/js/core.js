@@ -39,6 +39,7 @@
       dev: { offset: 0 },
       seen: {},
       ironlog: null,       // last update from Iron Log {synced, last, count}
+      body: { log: [], goal: null, range: '3m' }, // weigh-ins [{d, kg}], goal {kg, from, at}
     };
   }
   function load() {
@@ -136,6 +137,7 @@
     more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor" stroke="none"/>',
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+    downarrow: '<path d="M12 5v14M6 13l6 6 6-6"/>',
     trend: '<path d="m4 16 5.5-5.5 4 4L20 8"/><path d="M15 8h5v5"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
     calendar: '<rect x="3.75" y="5" width="16.5" height="15.25" rx="3"/><path d="M3.75 9.75h16.5M8 3v4M16 3v4"/>',
@@ -176,6 +178,7 @@
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5"/><path d="M12 7.5V12l3 2"/>',
     person: '<circle cx="12" cy="8" r="3.75"/><path d="M4.5 20c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/>',
     timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2M9.5 2.5h5"/>',
+    scale: '<rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M7.6 10.2a5.2 5.2 0 0 1 8.8 0"/><path d="m12 11.6 1.7-2.6"/>',
     home: '<path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>',
   };
   function icon(name, cls) {

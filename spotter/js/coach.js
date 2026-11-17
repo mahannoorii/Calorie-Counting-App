@@ -331,6 +331,7 @@
     const replies = (res.replies || []).concat(res.undo ? [a('Undo changes', 'aiUndo')] : []);
     if (m) { m.text = text || (res.error || '…'); m.replies = replies; m.card = res.card || null; delete m.live; if (res.error && text) m.text += '\n\n' + res.error; }
     else if (text || res.error) m = push({ from: 'coach', text: text || res.error, replies, card: res.card || null, urgent: false });
+    if (m && res.sources && res.sources.length) m.sources = res.sources.slice(0, 5);
     res.changed.forEach((c) => note(c));
     if (res.changed.length && S().active) App.Session.syncWithPlan();
     App.save();
@@ -436,20 +437,28 @@
     const t = today(); const trained = S().log.some((l) => l.date === t) || E.slotsOn(t).length;
     return (L.length ? 'Their goals: ' + L.join('; ') + '.' : 'Their goal: eating well without counting.') + (trained ? ' They train today, so a decent serve of carbs is fine.' : '');
   }
+  // Calories as a range and protein, when Claude estimated them.
+  function nums(x) {
+    const int = (v) => { const n = Math.round(Number(v)); return isFinite(n) && n > 0 && n < 6000 ? n : null; };
+    const lo = int(x.kcal_low); const hi = int(x.kcal_high); const p = int(x.protein_g); const o = {};
+    if (lo || hi) o.kcal = [Math.min(lo || hi, hi || lo), Math.max(lo || hi, hi || lo)];
+    if (p && p < 400) o.protein = p;
+    return o;
+  }
   function readMenu(file, name, cu) {
     const M = D.MENUS[cu];
     const prompt = [
       'You are a personal trainer helping a client order well at a restaurant. The image is a photo of the menu' + (name ? ' at ' + name : '') + (M ? ' (' + M.name + ' food)' : '') + '.',
       goalText(),
-      'Pick the 3 best dishes on THIS menu for them: lean protein, vegetables, lighter sauces, still satisfying. Use dish names exactly as printed. No calorie numbers. Australian English.',
+      'Pick the 3 best dishes on THIS menu for them: lean protein, vegetables, lighter sauces, still satisfying. Use dish names exactly as printed; if the menu is not in English, add the English in brackets. For each, estimate calories as a range for the portion and rough grams of protein. Australian English.',
       'For each pick add 1 to 3 short requests they can make when ordering to make it healthier without losing what makes it good, e.g. "Dressing on the side", "Grilled, not fried", "Salad instead of chips". Each under 6 words.',
-      'Reply with only JSON: {"place":"restaurant name if printed, else empty","cuisine":"one of: ' + Object.keys(D.MENUS).join(', ') + '","picks":[{"n":"dish name as printed","why":"why it suits their goals, under 10 words","mods":["request"]}],"treats":["up to 3 dish names best saved for a treat"]}',
+      'Reply with only JSON: {"place":"restaurant name if printed, else empty","cuisine":"one of: ' + Object.keys(D.MENUS).join(', ') + '","picks":[{"n":"dish name as printed","why":"why it suits their goals, under 10 words","mods":["request"],"kcal_low":500,"kcal_high":650,"protein_g":40}],"treats":["up to 3 dish names best saved for a treat"]}',
       'If the image is not a readable menu, reply {"picks":[]}.',
     ].join('\n');
     const str = (x, n) => (typeof x === 'string' ? x.trim().slice(0, n) : '');
     return (keyed() ? App.AI.readMenu(file, prompt) : aiSample.json(prompt, { images: [file], modelTier: 'quick' })).then((out) => ({
       place: str(out && out.place, 60), cuisine: out && D.MENUS[out.cuisine] ? out.cuisine : '',
-      picks: (out && Array.isArray(out.picks) ? out.picks : []).filter((x) => x && str(x.n, 80)).slice(0, 3).map((x) => ({ n: str(x.n, 80), t: 'pick', why: str(x.why, 120), mods: (Array.isArray(x.mods) ? x.mods : []).map((m) => str(m, 40)).filter(Boolean).slice(0, 3) })),
+      picks: (out && Array.isArray(out.picks) ? out.picks : []).filter((x) => x && str(x.n, 80)).slice(0, 3).map((x) => Object.assign({ n: str(x.n, 80), t: 'pick', why: str(x.why, 120), mods: (Array.isArray(x.mods) ? x.mods : []).map((m) => str(m, 40)).filter(Boolean).slice(0, 3) }, nums(x))),
       treats: (out && Array.isArray(out.treats) ? out.treats : []).map((x) => str(x, 80)).filter(Boolean).slice(0, 3).map((n) => ({ n, t: 'treat' })),
     }));
   }

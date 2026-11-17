@@ -525,7 +525,8 @@
       App.Import.sync(f).then((r) => {
         el.value = ''; App.closeLayer(true); App.render();
         App.sound(r.added ? 'set' : 'tick'); App.haptic('success');
-        App.toast(r.added ? r.added + ' new ' + App.plural(r.added, 'session') + ' from Iron Log' + (r.next ? '. Next up: ' + r.next : '') : 'Already up to date with Iron Log', 'check');
+        const w = r.weighins ? r.weighins + ' ' + App.plural(r.weighins, 'weigh-in') : '';
+        App.toast(r.added ? r.added + ' new ' + App.plural(r.added, 'session') + (w ? ' and ' + w : '') + ' from Iron Log' + (r.next ? '. Next up: ' + r.next : '') : w ? w + ' from Iron Log' : 'Already up to date with Iron Log', 'check');
       }).catch(() => { el.value = ''; App.toast('That file didn’t look like an Iron Log backup', 'alert'); });
     },
     obImport(el) {
@@ -541,7 +542,7 @@
         ob.step = pr ? Math.max(0, visibleSteps(p).findIndex((x) => x.id === 'program')) : 0;
         App.closeLayer(true); App.render(); App.scrollTo(0);
         App.sound('set'); App.haptic('success');
-        App.toast(imp.count + ' sessions ready to bring over', 'check');
+        App.toast(imp.count + ' sessions' + (imp.body && imp.body.length ? ' and ' + imp.body.length + ' weigh-ins' : '') + ' ready to bring over', 'check');
       }).catch(() => { el.value = ''; App.toast('That file didn’t look like an Iron Log backup', 'alert'); });
     },
     obFocus(el) { toggle(ob.p.focus, el.dataset.v); pickTick(); rerender(); },

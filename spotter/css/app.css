@@ -234,7 +234,7 @@ body.is-scrolled .compact { opacity: 1; transform: none; }
   background: var(--glass); -webkit-backdrop-filter: saturate(180%) blur(22px); backdrop-filter: saturate(180%) blur(22px);
   border-top: 0.5px solid var(--sep);
 }
-.tabbar__inner { max-width: 560px; height: var(--tabbar-h); margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); }
+.tabbar__inner { max-width: 560px; height: var(--tabbar-h); margin: 0 auto; display: grid; grid-template-columns: repeat(5, 1fr); }
 .tab { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 10.5px; font-weight: 500; letter-spacing: 0; color: var(--label-2); transition: color 0.2s; }
 .tab .ic { width: 25px; height: 25px; }
 .tab.is-on { color: var(--accent); }
@@ -972,3 +972,91 @@ body.is-scrolled .compact { pointer-events: auto; }
   .gymmap { max-height: 250px; }
 }
 .chips--scroll[aria-label="Body area"] + .group { margin-top: 10px; }
+
+/* ── Body weight ─────────────────────────────────────────────────────────── */
+.t-red { color: var(--red-text); }
+.wcard { display: grid; gap: 14px; }
+.wcard__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.wcard__eyebrow { font-size: 13px; font-weight: 600; color: var(--label-2); }
+.wcard__num { font-family: var(--font-round); font-size: 46px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.wcard__num small { font-size: 20px; font-weight: 600; color: var(--label-2); margin-left: 4px; letter-spacing: 0; }
+.wcard__trend { font-size: 15px; color: var(--label-2); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.wrate { display: inline-flex; align-items: center; gap: 2px; color: var(--label); font-weight: 600; white-space: nowrap; }
+.wrate .ic-sm { width: 15px; height: 15px; stroke-width: 2.2; }
+.wcard__add { flex: none; }
+.wchart { position: relative; margin: 0 -2px; touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.wchart__svg { display: block; overflow: visible; touch-action: pan-y; }
+.wchart__grid { stroke: var(--fill); stroke-width: 1; }
+.wchart__ylab, .wchart__xlab, .wchart__goallab { fill: var(--label-2); font-size: 11px; font-family: var(--font); font-variant-numeric: tabular-nums; }
+.wchart__goallab { font-weight: 600; }
+.wchart__goal { stroke: var(--green); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.wchart__dot { fill: var(--blue); opacity: 0.32; }
+.wchart__raw { fill: none; stroke: var(--blue); stroke-width: 1; opacity: 0.3; }
+.wchart__trend { fill: none; stroke: var(--blue); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+.wchart__end, .wchart__focus { fill: var(--blue); stroke: var(--bg-elev); stroke-width: 2; }
+.wchart__cross { stroke: var(--label-3); stroke-width: 1; }
+.wchart__tip { position: absolute; z-index: 2; pointer-events: none; display: grid; gap: 1px; padding: 6px 10px; border-radius: 10px; background: var(--bg-elev); box-shadow: 0 0 0 0.5px var(--sep), 0 6px 18px rgba(0, 0, 0, 0.14); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wchart__tip b { font-weight: 600; }
+.wchart__tipsub { color: var(--label-2); font-size: 12px; }
+.wcard__verdict { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: 15px; line-height: 1.35; color: var(--label-2); }
+.wcard__verdict .ic-sm { margin-top: 2px; }
+.wcard__verdict.is-good .ic-sm { color: var(--green-text); }
+.wcard__verdict.is-warn .ic-sm { color: var(--gold-text); }
+.wcard--empty { justify-items: center; text-align: center; padding-top: 24px; }
+.wcard__icon { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--blue-soft); color: var(--blue-text); }
+.wcard__icon .ic { width: 30px; height: 30px; }
+.wcard__title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.wcard__text { margin: 0; max-width: 36ch; font-size: 15px; line-height: 1.4; color: var(--label-2); }
+.wmeter { display: block; height: 6px; margin-top: 8px; border-radius: 3px; background: var(--green-soft); overflow: hidden; }
+.wmeter i { display: block; height: 100%; border-radius: 3px; background: var(--green); }
+.wlog { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 10px 0 18px; }
+.wlog__step { flex: none; width: 52px; height: 52px; border-radius: 26px; display: grid; place-items: center; background: var(--fill); color: var(--label); }
+.wlog__step:active { transform: scale(0.94); }
+.wlog__field { display: flex; align-items: baseline; gap: 6px; }
+.wlog__in { width: 4.4ch; padding: 0 0 2px; border: 0; border-bottom: 2px solid var(--sep); border-radius: 0; background: transparent; color: var(--label); font-family: var(--font-round); font-size: 52px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; outline: none; }
+.wlog__in:focus { border-color: var(--accent); }
+.wlog__unit { font-size: 22px; font-weight: 600; color: var(--label-2); }
+.wlog__pick { position: relative; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.wlog__date { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+
+/* ── Food: any day of the week, and the reminders ────────────────────────── */
+.daydot { border-radius: 10px; padding: 2px 0 4px; }
+button.daydot { cursor: pointer; }
+button.daydot:disabled { opacity: 0.4; cursor: default; }
+.daydot__n { font-size: 11px; font-weight: 500; color: var(--label-3); line-height: 1; font-variant-numeric: tabular-nums; }
+.daydot.is-sel { background: var(--fill-2); color: var(--label); font-weight: 700; }
+.daydot.is-sel i { box-shadow: inset 0 0 0 2px var(--label); }
+.daydot.is-sel.is-on i, .daydot.is-sel.is-part i, .daydot.is-sel.is-off i { box-shadow: 0 0 0 2px var(--bg-elev), 0 0 0 3.5px var(--label); }
+.daydot.is-sel .daydot__n { color: var(--label-2); }
+.weeknav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: -6px; }
+.weeknav__label { font-size: 13px; font-weight: 600; color: var(--label-2); text-align: center; }
+.weeknav__btn { position: relative; width: 32px; height: 32px; border-radius: 16px; display: grid; place-items: center; color: var(--accent-text); }
+.weeknav__btn::after { content: ""; position: absolute; inset: -6px; }
+.weeknav__btn:disabled { color: var(--label-3); }
+.weeknav__btn .ic { width: 20px; height: 20px; }
+.linkbtn { color: var(--accent-text); font: inherit; padding: 0; }
+.foodnudge { display: grid; gap: 14px; }
+.foodnudge__head { display: flex; align-items: center; gap: 12px; }
+.foodnudge__head .cell__tile { flex: none; }
+.foodnudge__more { justify-self: start; }
+.foodask { display: grid; gap: 18px; }
+.foodask__row { display: grid; gap: 8px; transition: opacity 0.3s; }
+.foodask__day { font-size: 17px; font-weight: 600; }
+.foodask__row.is-done .foodask__day::after { content: " ✓"; color: var(--green-text); }
+
+/* ── Eating out, looked up on the web ────────────────────────────────────── */
+.eatwhere { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 6px 2px; font-size: 15px; color: var(--label-2); max-width: 100%; }
+.eatwhere span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--label); font-weight: 500; }
+.eatwhere .ic-sm { color: var(--red-text); }
+.eatwhere__change { color: var(--accent-text); font-weight: 500; flex: none; }
+.lookup { display: grid; gap: 12px; padding: 4px 0 6px; }
+.lookup__now { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; }
+.lookup__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.lookup__steps li { display: flex; gap: 8px; align-items: flex-start; font-size: 15px; color: var(--label-2); line-height: 1.35; animation: fadeUp 0.3s var(--ease) both; overflow-wrap: anywhere; }
+.lookup__steps .ic-sm { color: var(--green-text); margin-top: 2px; }
+.pick__nums { margin-top: 3px; font-size: 14px; font-weight: 600; color: var(--label); font-variant-numeric: tabular-nums; }
+.msgcard__kcal { display: block; font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+.srcline { align-self: flex-start; max-width: 85%; margin: -2px 0 4px 4px; font-size: 13px; color: var(--label-2); overflow-wrap: anywhere; }
+.srcline a { color: var(--accent-text); text-decoration: none; }
+.coachcard .srcline { margin: 6px 0 0; max-width: none; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
