@@ -483,8 +483,18 @@
       if (!p.equipment) p.equipment = STYLE_DEFAULT[p.experience] || 'machines';
       App.S.profile = toProfile(p);
       if (prev && prev.health && prev.health.cleared && !App.S.profile.health.flag) App.S.profile.health.cleared = true;
-      if (ob.imp) { App.Import.apply(ob.imp); ob.imp = null; }
-      App.S.plan = App.E.buildPlan(App.S.profile);
+      const prevPlan = App.S.plan;
+      // weeks on target before the new plan starts carry over
+      const carry = prevPlan ? App.E.streakBack(App.addDays(App.weekStart(App.today()), -7)) : 0;
+      const imp = ob.imp; ob.imp = null;
+      if (imp) { App.S.plan = null; App.Import.apply(imp); }
+      const plan = App.E.buildPlan(App.S.profile);
+      if (prevPlan) {
+        plan.carry = carry; App.S.opened = {};
+        const a = App.S.active; if (a && !plan.sessions[a.key] && prevPlan.sessions[a.key]) plan.sessions[a.key] = prevPlan.sessions[a.key];
+      }
+      App.S.plan = plan;
+      if (imp) App.Import.resync();
       App.checkAwards(true);
       App.S.rewards = App.S.rewards || Object.assign({}, D.DEFAULT_REWARDS);
       App.saveNow();

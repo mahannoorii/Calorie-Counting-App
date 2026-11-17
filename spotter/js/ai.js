@@ -101,8 +101,9 @@
       Object.keys(plan.sessions).filter((k) => used.has(k)).forEach((k) => {
         const ss = plan.sessions[k];
         L.push('- [' + k + '] ' + ss.name + (ss.title ? ' (' + ss.title + ')' : '') + (plan.order.includes(k) ? '' : ', a one-off, not in the rotation') + ':');
+        const rot = plan.rotate && Math.floor((curWeek(plan) - 1) / 4) % 2 === 1;
         (ss.items || (ss.ex || []).map((id) => ({ id }))).forEach((it) => {
-          const id = s.swaps[it.id] || it.id; const ex = D.EX[id] || {};
+          const base = rot && it.alt ? it.alt : it.id; const id = s.swaps[base] || base; const ex = D.EX[id] || {};
           L.push('    ' + exName(id) + ' [' + id + '] ' + (it.sets || 3) + ' sets × ' + (it.reps || ex.reps || []).join('–') + (ex.unit === 'sec' ? ' s' : '') + (it.rest ? ', rest ' + it.rest + ' s' : '') + (it.cap ? ', max ' + kg(it.cap) + ' kg' : '') + (it.note ? ', note: ' + it.note : '') + (it.pair ? ', superset ' + it.pair + it.pairRole : ''));
         });
       });
@@ -154,7 +155,7 @@
     const d = new Date(App.nowMs()); const h = d.getHours(); const m = String(d.getMinutes()).padStart(2, '0');
     const ss = App.Coach.sessionContext && App.Coach.sessionContext();
     let where = '';
-    if (ss && ss.exId) { const sg = App.E.suggest(ss.exId, ss.slot); where = ' They are in the gym mid-session, on the ' + exName(ss.exId) + ' [' + ss.exId + ']. The app is suggesting ' + sg.title + ' (' + sg.why + ').'; }
+    if (ss && ss.exId) { const sg = App.E.suggest(ss.exId, ss.slot, App.Session.stepFor(ss.exId) || undefined); where = ' They are in the gym mid-session, on the ' + exName(ss.exId) + ' [' + ss.exId + ']. The app is suggesting ' + sg.title + ' (' + sg.why + ').'; }
     return 'Now: ' + DOW_LONG[dow(today())] + ' ' + fmtDate(today(), 'dm') + ', ' + ((h % 12) || 12) + ':' + m + (h < 12 ? ' am' : ' pm') + '.' + where;
   }
 
@@ -251,7 +252,7 @@
   }
 
   const isStr = (x) => typeof x === 'string' && x.trim().length > 0;
-  const isDate = (x) => isStr(x) && /^\d{4}-\d{2}-\d{2}$/.test(x);
+  const isDate = (x) => isStr(x) && /^\d{4}-\d{2}-\d{2}$/.test(x) && App.iso(App.parse(x)) === x;
   function slotOrErr(id) { const sl = App.E.slotById(id); if (!sl) throw new Error('No session with id ' + id + '. Use an id from the schedule.'); return sl; }
   function exOrErr(id) { if (!isStr(id) || !D.EX[id]) throw new Error('Unknown exercise id ' + id + '. Use search_exercises.'); return D.EX[id]; }
   const changed = []; // what the tools did this message, for the screen to refresh
@@ -306,7 +307,7 @@
       const sl = slotOrErr(i.session_id); if (!isDate(i.new_date)) throw new Error('new_date must be YYYY-MM-DD');
       if (App.E.isDone(sl)) throw new Error('That session is already done.');
       if (i.new_date < today()) throw new Error('Can\'t move a session into the past.');
-      S().moves[sl.id] = i.new_date; changed.push('Moved ' + App.E.sessionName(sl) + ' to ' + fmtDate(i.new_date, 'long'));
+      S().moves[sl.id] = i.new_date; delete S().skips[sl.id]; changed.push('Moved ' + App.E.sessionName(sl) + ' to ' + fmtDate(i.new_date, 'long'));
       return 'Moved ' + App.E.sessionName(sl) + ' to ' + i.new_date + '.';
     },
     skip_session(i) {
@@ -324,7 +325,7 @@
       exOrErr(i.from_exercise_id); exOrErr(i.to_exercise_id);
       if (!App.E.canDo(i.to_exercise_id)) throw new Error(exName(i.to_exercise_id) + ' needs equipment their gym doesn\'t have.');
       const plan = S().plan; let base = null;
-      Object.keys(plan.sessions).forEach((k) => (plan.sessions[k].items || []).forEach((it) => { const cur = S().swaps[it.id] || it.id; if (it.id === i.from_exercise_id || cur === i.from_exercise_id) base = it.id; }));
+      Object.keys(plan.sessions).forEach((k) => (plan.sessions[k].items || []).forEach((it) => [it.id, it.alt].filter(Boolean).forEach((b) => { if (b === i.from_exercise_id || S().swaps[b] === i.from_exercise_id) base = b; })));
       if (!base) throw new Error(exName(i.from_exercise_id) + ' isn\'t in their plan.');
       if (base === i.to_exercise_id) delete S().swaps[base]; else S().swaps[base] = i.to_exercise_id;
       changed.push('Swapped ' + exName(i.from_exercise_id) + ' for ' + exName(i.to_exercise_id));
@@ -335,7 +336,7 @@
       const w = Number(i.weight_kg); const r = Math.round(Number(i.reps));
       if (!(w >= 0 && w < 1000) || !(r > 0 && r < 1000)) throw new Error('weight_kg and reps must be sensible numbers');
       S().targets = S().targets || {};
-      S().targets[i.exercise_id] = { w: Math.round(w * 4) / 4, r, why: String(i.why || '').slice(0, 90), n: S().log.length };
+      S().targets[i.exercise_id] = { w: Math.round(w * 4) / 4, r, why: String(i.why || '').slice(0, 90), n: S().log.length + (S().active ? 1 : 0) };
       changed.push('Next ' + ex.name + ': ' + (ex.unit === 'kg' ? kg(w) + ' kg × ' + r : r + (ex.unit === 'sec' ? ' s' : ' reps')));
       return 'Set. The app will suggest this next time.';
     },

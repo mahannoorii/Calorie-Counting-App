@@ -9,6 +9,7 @@
   App.S = migrate(App.load());
   App.Import.register(App.S.customEx);
   backfillRecords();
+  { const msg = App.Session.expireStale(); if (msg) setTimeout(() => App.Coach.note(msg), 0); }
   App.tab = 'today';
   App.Q = [];
   App.entering = true;
@@ -73,6 +74,7 @@
       app.innerHTML = '<div class="scroller" data-scroller>' + App.OB.render() + '</div>';
     } else {
       if (!S().plan) S().plan = E.buildPlan(S().profile);
+      if (E.ensureAhead()) { App.save(); if (App.Coach && S().chat.length) App.Coach.note('Your plan’s been extended: 8 more weeks, same sessions'); }
       app.className = 'app app--tabs' + (App.tab === 'coach' ? ' app--coach' : '');
       app.innerHTML = App.Views.shell();
       App.entering = false;
@@ -223,6 +225,9 @@
   window.addEventListener('orientationchange', () => setTimeout(fitViewport, 300));
   document.addEventListener('focusout', () => setTimeout(() => { if (!document.activeElement || document.activeElement === document.body) { window.scrollTo(0, 0); fitViewport(); } }, 60));
   fitViewport();
+  // put away, switched or closed: save now, not in a moment
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') App.saveNow(); });
+  window.addEventListener('pagehide', () => App.saveNow());
 
   const fake = (v, label) => ({ dataset: { v: v == null ? '' : String(v), label: label || '' } });
   function after(fn) { setTimeout(fn, App.topLayer() ? 300 : 0); }
@@ -259,6 +264,7 @@
     coachSend(el) {
       const box = el.closest && el.closest('[data-composer]'); const inp = box ? box.querySelector('input:not([type="file"])') : el;
       const v = (inp && inp.value || '').trim(); if (!v) { if (inp && inp.focus) inp.focus(); return; }
+      if (App.Coach.isBusy()) { App.toast('One sec, your coach is still replying'); return; }
       inp.value = ''; App.Coach.send(v);
     },
     coachAct(el) { const [name, ...rest] = el.dataset.v.split('|'); App.closeLayer(true); App.Coach.act(name, rest.join('|'), el.dataset.label); App.render(); },
@@ -404,7 +410,8 @@
         const data = JSON.parse(decodeURIComponent(escape(atob(v))));
         if (!data || !data.profile) throw new Error('bad');
         App.S = Object.assign(App.fresh(), data);
-        App.saveNow(); App.closeLayer(true); App.applyTheme(); App.render(); App.toast('Progress restored', 'check');
+        App.saveNow(); App.toast('Progress restored', 'check');
+        setTimeout(() => location.reload(), 600);
       } catch (e) { App.toast('That code didn’t work. Check you copied all of it.', 'alert'); }
     },
     timeTravel(el) {

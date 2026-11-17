@@ -360,6 +360,24 @@
     Object.assign(plan, { slots, order, days, end, weeks: Math.max(1, Math.ceil((diffDays(weekStart(plan.start), end) + 1) / 7)) });
     if (s.profile) { s.profile.days = days.slice(); s.profile.perWeek = days.length; }
   }
+  // Keep at least two weeks of sessions ahead: same sessions, same days, the rotation carrying
+  // on. Returns true when it added a block.
+  function ensureAhead() {
+    const plan = S().plan; if (!plan || !plan.order || !plan.order.length || !plan.days.length) return false;
+    const t = today(); const ahead = plan.slots.some((sl) => !isDone(sl) && !isSkipped(sl) && slotDate(sl) >= t);
+    if (plan.end >= addDays(t, 13) && ahead) return false;
+    const from = plan.end >= t ? addDays(plan.end, 1) : t; const end = addDays(weekStart(from), 8 * 7 - 1);
+    const last = plan.slots[plan.slots.length - 1]; let n = last ? plan.order.indexOf(last.key) + 1 : 0; if (n < 0) n = 0;
+    const ids = new Set(plan.slots.map((sl) => sl.id));
+    for (let d = from; d <= end; d = addDays(d, 1)) {
+      if (!plan.days.includes(dow(d))) continue;
+      const key = plan.order[n % plan.order.length]; n++;
+      let id = d + key; while (ids.has(id)) id += '+'; ids.add(id);
+      plan.slots.push({ id, date: d, key, week: Math.floor(diffDays(weekStart(plan.start), d) / 7) + 1 });
+    }
+    plan.end = end; plan.weeks = Math.max(1, Math.ceil((diffDays(weekStart(plan.start), end) + 1) / 7));
+    return true;
+  }
   function slotById(id) { const plan = S().plan; return plan ? plan.slots.find((s) => s.id === id) : null; }
   function freeDayAfter(d, n) { let x = d; for (let i = 0; i < 10; i++) { x = addDays(x, 1); if (!slotsOn(x).length) { if (!n) return x; n--; } } return addDays(d, 1); }
   function sessionName(slot) { const s = S().plan.sessions[slot.key]; return s ? s.name : 'Session'; }
@@ -398,9 +416,13 @@
 
   // ── Weight suggestions ────────────────────────────────────────────────────
   function lastPerf(id) {
-    const log = S().log;
-    for (let i = log.length - 1; i >= 0; i--) { const e = log[i].ex.find((x) => x.id === id && x.sets.length); if (e) return Object.assign({ date: log[i].date }, e); }
-    return null;
+    const log = S().log; let light = null;
+    for (let i = log.length - 1; i >= 0; i--) {
+      const e = log[i].ex.find((x) => x.id === id && x.sets.length); if (!e) continue;
+      if (e.deload) { light = light || Object.assign({ date: log[i].date }, e); continue; }
+      return Object.assign({ date: log[i].date }, e);
+    }
+    return light;
   }
   function stepOf(id) { const s = S().exSettings[id]; return (s && Number(s.step)) || D.EX[id].step || 2.5; }
   const r2 = (n) => Math.round(n * 100) / 100;
@@ -481,8 +503,8 @@
   const e1rm = (w, r) => w * (1 + r / 30);
   function prFor(id, set, earlier) {
     const ex = D.EX[id]; if (!ex || ex.unit === 'min' || !set || !set.r) return null;
-    const hist = history(id).concat((earlier || []).map((x) => ({ w: x.w || 0, r: x.r || 0 })));
-    if (!hist.length) return null;
+    const past = history(id); if (!past.length) return null;
+    const hist = past.concat((earlier || []).map((x) => ({ w: x.w || 0, r: x.r || 0 })));
     if (ex.unit === 'reps' || ex.unit === 'sec') {
       const best = Math.max.apply(null, hist.map((h) => h.r));
       return set.r > best ? { kind: ex.unit === 'sec' ? 'time' : 'reps', prev: best, gain: set.r - best } : null;
@@ -523,7 +545,12 @@
   // ── Weekly goals ──────────────────────────────────────────────────────────
   function sessionsInWeek(wk) { const end = addDays(wk, 6); return S().log.filter((l) => l.date >= wk && l.date <= end).length; }
   function plannedInWeek(wk) { const end = addDays(wk, 6); return allSlots().filter((s) => { const d = slotDate(s); return d >= wk && d <= end; }).length; }
-  function targetInWeek(wk) { const plan = S().plan; if (!plan) return 0; const n = plannedInWeek(wk); return n || (wk >= weekStart(plan.start) && wk <= plan.end ? plan.days.length : 0); }
+  function targetInWeek(wk) {
+    const plan = S().plan; if (!plan) return 0; const end = addDays(wk, 6);
+    const inWeek = plan.slots.filter((sl) => { const d = slotDate(sl); return d >= wk && d <= end; });
+    if (inWeek.length) return inWeek.filter((sl) => !isSkipped(sl)).length;
+    return wk >= weekStart(plan.start) && wk <= plan.end ? plan.days.length : 0;
+  }
   const FOOD_VAL = { on: 1, part: 0.5, off: 0 };
   function foodScore(wk) { let s = 0; for (let i = 0; i < 7; i++) { const f = S().food[addDays(wk, i)]; if (f) s += FOOD_VAL[f.s] || 0; } return s; }
   const FOOD_TARGET = 5;
@@ -535,13 +562,24 @@
   }
   function streakWeeks() {
     const plan = S().plan; if (!plan) return 0;
-    let wk = weekStart(today()); let n = 0;
-    if (sessionsInWeek(wk) >= Math.max(1, targetInWeek(wk))) n++;
-    wk = addDays(wk, -7);
-    while (wk >= weekStart(plan.start)) { const tgt = targetInWeek(wk); if (tgt && sessionsInWeek(wk) >= tgt) { n++; wk = addDays(wk, -7); } else break; }
-    return n;
+    const wk = weekStart(today()); const tgt = targetInWeek(wk);
+    return (tgt && sessionsInWeek(wk) >= tgt ? 1 : 0) + streakBack(addDays(wk, -7));
   }
-  function totals() { const plan = S().plan; return { total: plan ? plan.slots.length : 0, done: S().log.filter((l) => l.slot).length }; }
+  // Weeks on target in a row, counting back from the week starting wk.
+  function streakBack(wk) {
+    const plan = S().plan; if (!plan) return 0; let n = 0;
+    while (wk >= weekStart(plan.start)) {
+      const tgt = targetInWeek(wk);
+      if (tgt) { if (sessionsInWeek(wk) >= tgt) n++; else return n; }
+      wk = addDays(wk, -7);
+    }
+    return n + (plan.carry || 0);
+  }
+  function totals() {
+    const plan = S().plan; if (!plan) return { total: 0, done: 0 };
+    const ids = new Set(plan.slots.map((sl) => sl.id));
+    return { total: plan.slots.length, done: S().log.filter((l) => l.slot && ids.has(l.slot)).length };
+  }
   function partnerRewards() {
     const plan = S().plan; if (!plan) return [];
     const rw = S().rewards || D.DEFAULT_REWARDS; const per = plan.days.length;
@@ -563,12 +601,12 @@
     const tm = timeOf(plan.time);
     if (s.active) {
       const ex = s.active.steps.filter((x) => x.t === 'ex'); const n = ex.filter((x) => x.sets.some((y) => y.done)).length;
-      return { kind: 'active', eyebrow: 'In progress', title: plan.sessions[s.active.key].name, sub: n + ' of ' + ex.length + ' exercises done', primary: { label: 'Resume', act: 'resumeSession' } };
+      return { kind: 'active', eyebrow: 'In progress', title: sessionName({ key: s.active.key }), sub: n + ' of ' + ex.length + ' exercises done', primary: { label: 'Resume', act: 'resumeSession' } };
     }
     const todays = slotsOn(t).filter((x) => !isDone(x))[0];
     if (todays) {
       const exs = exercisesFor(todays.key, todays.week, todays.id);
-      return { kind: 'today', slot: todays, eyebrow: (h < tm.hour ? 'Today · ' + tm.at : 'Today'), title: plan.sessions[todays.key].name, sub: plan.sessions[todays.key].title + ' · ' + exs.length + ' exercises · ' + (s.trims[todays.id] ? '20' : plan.mins) + ' min', primary: { label: 'Start', act: 'startSession', data: todays.id } };
+      return { kind: 'today', slot: todays, eyebrow: (h < tm.hour ? 'Today · ' + tm.at : 'Today'), title: plan.sessions[todays.key].name, sub: plan.sessions[todays.key].title + ' · ' + exs.length + ' exercises · ' + (s.trims[todays.id] ? (s.trims[todays.id] >= 4 ? '30' : '20') : plan.mins) + ' min', primary: { label: 'Start', act: 'startSession', data: todays.id } };
     }
     const miss = missed();
     if (miss) return { kind: 'missed', slot: miss, eyebrow: 'Missed ' + App.relLow(slotDate(miss)), title: plan.sessions[miss.key].name, sub: 'Do it today, or move it to another day.', primary: { label: 'Do it today', act: 'catchUp', data: miss.id } };
@@ -718,7 +756,7 @@
   App.E = {
     gym, kit, kitSet, canDo, missing, kitLayers, gymFromDirectory, customGym, legacyGym, gymName, gymShort, gymsNear, suburbPoint, findGyms, km, levelOf, styleOf, dayOptions, minOptions,
     buildPlan, splitFor, SPLITS, phaseFor, timeOf, cardioOptions, swapsFor, planIds, regionOf, fixPlanForKit,
-    slotDate, isDone, isSkipped, reschedule, allSlots, openSlots, slotsOn, nextOpen, missed, slotById, freeDayAfter, sessionName, sessionKeys, sessionTag, exercisesFor,
+    slotDate, isDone, isSkipped, reschedule, ensureAhead, streakBack, allSlots, openSlots, slotsOn, nextOpen, missed, slotById, freeDayAfter, sessionName, sessionKeys, sessionTag, exercisesFor,
     lastPerf, stepOf, effortWord, suggest, predictNext, prFor, prText, bestOf, prCount,
     sessionsInWeek, plannedInWeek, targetInWeek, foodScore, week, streakWeeks, totals, partnerRewards, liftHistory, FOOD_TARGET,
     upNext, coachTriggers, cuisines, dinners, detectCuisine, extractPlace,

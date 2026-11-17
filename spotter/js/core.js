@@ -52,9 +52,21 @@
   let saveTimer = null;
   function save() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(App.S)); } catch (e) { /* storage full or blocked */ } }, 120);
+    saveTimer = setTimeout(write, 120);
   }
-  function saveNow() { clearTimeout(saveTimer); try { localStorage.setItem(KEY, JSON.stringify(App.S)); } catch (e) {} }
+  function saveNow() { clearTimeout(saveTimer); write(); }
+  let warned = false;
+  function write() {
+    try { localStorage.setItem(KEY, JSON.stringify(App.S)); return true; } catch (e) { /* full or blocked */ }
+    // full: photos are the big things, so drop the oldest and try again
+    const S2 = App.S; let freed = false;
+    (S2.chat || []).forEach((m) => { if (m.img) { delete m.img; freed = true; } });
+    const withPhoto = Object.keys(S2.exSettings || {}).filter((id) => S2.exSettings[id].photo);
+    withPhoto.slice(0, Math.max(0, withPhoto.length - 6)).forEach((id) => { delete S2.exSettings[id].photo; freed = true; });
+    if (freed) { try { localStorage.setItem(KEY, JSON.stringify(App.S)); if (!warned) { warned = true; toast('Storage was full, so older photos were removed'); } return true; } catch (e) {} }
+    if (!warned) { warned = true; toast('Can’t save: this phone’s storage for Spotter is full. Remove machine photos in Train → Exercises.', 'alert'); }
+    return false;
+  }
 
   // ── Dates (local, Monday-first weeks) ─────────────────────────────────────
   const DAY = 86400000;
@@ -62,7 +74,10 @@
   const DOW_LONG = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  function nowMs() { return Date.now() + (App.S && App.S.dev ? App.S.dev.offset : 0) * DAY; }
+  function nowMs() {
+    const off = App.S && App.S.dev ? App.S.dev.offset : 0; if (!off) return Date.now();
+    const d = new Date(); d.setDate(d.getDate() + off); return d.getTime();
+  }
   function now() { return new Date(nowMs()); }
   function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function parse(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }

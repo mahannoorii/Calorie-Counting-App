@@ -26,13 +26,14 @@
     const s = S();
     if (s.active) return open();
     const slot = E.slotById(slotId); if (!slot) return;
-    const plan = s.plan; const t = today();
-    if (E.slotDate(slot) !== t) s.moves[slot.id] = t;
+    const plan = s.plan; const t = today(); let prevMove;
+    if (E.slotDate(slot) !== t) { prevMove = s.moves[slot.id] || null; s.moves[slot.id] = t; }
     const steps = [{ t: 'ready', checks: {} }, { t: 'cardio', role: 'warmup', id: plan.warmup.id, min: plan.warmup.min, elapsed: 0, runFrom: null }];
     E.exercisesFor(slot.key, slot.week, slot.id).forEach((e) => steps.push(exStep(e.id, e.base, e.sets, slot.id, e)));
     if (plan.finisher && !s.trims[slot.id]) steps.push({ t: 'cardio', role: 'finisher', id: plan.finisher.id, min: plan.finisher.min, elapsed: 0, runFrom: null });
     steps.push({ t: 'cooldown', ticks: {} });
     s.active = { id: App.uid(), slot: slot.id, key: slot.key, week: slot.week, date: t, startedAt: Date.now(), gymId: plan.gymId, step: 0, steps };
+    if (prevMove !== undefined) s.active.prevMove = prevMove;
     App.saveNow(); App.Coach.clear();
     App.closeLayer(true); App.Views.closeSearch();
     open();
@@ -66,7 +67,7 @@
     else v = cooldownStep(a, st);
     host.innerHTML = '<div class="sx" role="dialog" aria-label="Session in progress">' +
       '<div class="sx__nav"><button class="icon-btn" data-act="sxLeave" aria-label="Pause or finish">' + icon('x') + '</button>' +
-        '<div class="sx__title"><div class="sx__name">' + esc(plan.sessions[a.key].name) + '</div><div class="sx__step">' + esc(where) + '</div></div>' +
+        '<div class="sx__title"><div class="sx__name">' + esc(E.sessionName({ key: a.key })) + '</div><div class="sx__step">' + esc(where) + '</div></div>' +
         '<button class="icon-btn sx__coach" data-act="openCoachSheet" aria-label="Message your coach">' + icon('coach') + (App.Coach.unread() ? '<span class="dot-new"></span>' : '') + '</button></div>' +
       '<div class="sx__bar" aria-hidden="true">' + bar + '</div>' +
       '<div class="sx__scroll"><div class="sx__body' + (dir < 0 ? ' is-back' : '') + '">' + v.body + '</div></div>' +
@@ -85,7 +86,7 @@
   }
 
   function readyStep(a, st, plan) {
-    const p = S().profile; const sess = plan.sessions[a.key]; const phase = E.phaseFor(a.week, plan);
+    const p = S().profile; const sess = plan.sessions[a.key] || { name: 'Session', title: 'Today’s session' }; const phase = E.phaseFor(a.week, plan);
     const items = [['water', 'Water bottle', '', 'water'], ['towel', 'Towel', '', 'towel'], ['phone', 'Headphones, if you like', '', 'headphones']];
     if (p.health.asthma) items.unshift(['puffer', 'Reliever puffer in your bag', 'Use it before the warm-up only if your action plan says to', 'puffer']);
     const first = !S().log.length;
@@ -240,7 +241,7 @@
     // a personal record against every earlier session and today's earlier sets
     const pr = E.prFor(st.id, set, st.sets.filter((x, j) => j !== i && x.done));
     if (pr) { set.pr = pr.kind; S().active.prs = (S().active.prs || 0) + 1; }
-    App.save();
+    App.saveNow();
     App.sound('set'); App.haptic();
     refreshSets(i);
     if (pr && !st.prShown) { st.prShown = true; App.save(); setTimeout(() => prPop(st, ex, set, pr), 260); }
@@ -330,22 +331,43 @@
   function skipCurrent() { const st = curEx(); if (!st) return; st.skipped = true; App.ACT.sxNext(); }
 
   // ── Finish ────────────────────────────────────────────────────────────────
-  function finish() {
+  function finish(quiet) {
     const s = S(); const a = s.active; if (!a) return;
     closeRest(true); clearInterval(tick);
     const steps = a.steps.filter((x) => x.t === 'ex');
-    const exs = steps.map((x) => ({ id: x.id, sets: x.sets.filter((y) => y.done).map((y) => ({ w: y.w, r: y.r })), effort: x.effort, reps: x.reps || undefined })).filter((e) => e.sets.length);
+    const exs = steps.map((x) => ({ id: x.id, sets: x.sets.filter((y) => y.done).map((y) => ({ w: y.w, r: y.r })), effort: x.effort, reps: x.reps || undefined, deload: x.deload || undefined })).filter((e) => e.sets.length);
+    if (!exs.length) { if (quiet) discard(); else askDiscard(true); return; }
     // the best record per exercise: the last set that beat the rest
     const prs = [];
     steps.forEach((x) => { const done = x.sets.filter((y) => y.done); for (let i = done.length - 1; i >= 0; i--) { if (!done[i].pr) continue; const r = E.prFor(x.id, done[i], done.slice(0, i)); if (r) { prs.push(Object.assign({ id: x.id, w: done[i].w, r: done[i].r }, r)); break; } } });
-    const mins = Math.max(1, Math.round((Date.now() - a.startedAt) / 60000));
-    const entry = { id: a.id, slot: a.slot, key: a.key, week: a.week, date: today(), mins, gymId: a.gymId, ex: exs, prs, mood: null };
+    // a session paused and finished another day counts on the day it was done, for its planned length
+    const took = Math.round((Date.now() - a.startedAt) / 60000);
+    const mins = a.date !== today() || took > 240 ? S().plan.mins : Math.max(1, took);
+    const entry = { id: a.id, slot: a.slot, key: a.key, week: a.week, date: a.date || today(), mins, gymId: a.gymId, ex: exs, prs, mood: null };
     s.log.push(entry); s.active = null;
     if (prs.length) s.seen.stronger = true;
     App.saveNow();
     App.Coach.setSession(null);
-    App.checkAwards();
-    summary(entry);
+    App.checkAwards(quiet);
+    if (!quiet) summary(entry);
+  }
+  // A session left paused for more than a day is wrapped up: saved if anything was logged
+  // (on the day it was done), otherwise put back in the plan.
+  function expireStale() {
+    const a = S().active; if (!a || !a.date || a.date >= App.addDays(today(), -1)) return null;
+    const name = E.sessionName({ key: a.key }); const day = a.date;
+    const any = a.steps.some((x) => x.t === 'ex' && x.sets.some((y) => y.done));
+    if (any) finish(true); else discard();
+    return (any ? 'Saved your unfinished ' : 'Cleared your unstarted ') + name + ' from ' + App.fmtDate(day, 'short');
+  }
+  function askDiscard(empty) {
+    App.openLayer('<div class="dialog"><div class="dialog__icon">' + icon('x') + '</div><h2 class="dialog__title">' + (empty ? 'Nothing logged yet' : 'Discard this session?') + '</h2><p class="dialog__text">' + (empty ? 'No sets are ticked off, so there’s nothing to save. Discard it, or keep going.' : 'The sets you’ve logged today won’t be saved, and the session goes back in your plan.') + '</p>' +
+      '<button class="btn" data-act="closeLayer">Keep going</button><button class="btn btn--danger" data-act="sxDiscard">Discard session</button></div>', { dialog: true });
+  }
+  function discard() {
+    const s = S(); const a = s.active; if (!a) return;
+    if (a.prevMove !== undefined) { if (a.prevMove) s.moves[a.slot] = a.prevMove; else delete s.moves[a.slot]; }
+    s.active = null; App.saveNow(); close();
   }
   function summary(entry) {
     ensureHost(); clearInterval(tick);
@@ -420,7 +442,7 @@
       const st = curEx(); if (!st) return;
       const img = new Image(); const url = URL.createObjectURL(f);
       img.onload = () => {
-        const k = Math.min(1, 900 / Math.max(img.width, img.height));
+        const k = Math.min(1, 640 / Math.max(img.width, img.height));
         const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(url);
@@ -466,10 +488,13 @@
       const any = S().active && S().active.steps.some((x) => x.t === 'ex' && x.sets.some((y) => y.done));
       App.openLayer('<div class="dialog"><div class="dialog__icon">' + icon('pause') + '</div><h2 class="dialog__title">Take a break?</h2><p class="dialog__text">Everything you’ve logged is saved. Pick it up from Today whenever you’re ready.</p>' +
         '<button class="btn" data-act="closeLayer">Keep going</button><button class="btn btn--tinted" data-act="sxPause">Leave for now</button>' +
-        (any ? '<button class="btn btn--plain" data-act="sxEndNow">Finish the session here</button>' : '') + '</div>', { dialog: true });
+        (any ? '<button class="btn btn--plain" data-act="sxEndNow">Finish the session here</button>' : '') +
+        '<button class="btn btn--plain" style="color:var(--red-text)" data-act="sxDiscardAsk">Discard session</button></div>', { dialog: true });
     },
     sxPause() { App.closeLayer(true); close(); App.render(); App.toast('Saved. Resume from Today.', 'pause'); },
     sxEndNow() { App.closeLayer(true); finish(); },
+    sxDiscardAsk() { App.closeLayer(true); setTimeout(() => askDiscard(false), 280); },
+    sxDiscard() { App.closeLayer(true); discard(); App.render(); App.toast('Session discarded. It’s back in your plan.'); },
     sxCheck(el) { const st = S().active.steps[S().active.step]; const k = el.dataset.v; st.checks[k] = !st.checks[k]; el.classList.toggle('is-on', st.checks[k]); App.haptic(); if (st.checks[k]) App.sound('tick'); App.save(); },
     sxTick(el) { const st = S().active.steps[S().active.step]; const k = el.dataset.v; st.ticks[k] = !st.ticks[k]; el.classList.toggle('is-on', st.ticks[k]); App.haptic(); if (st.ticks[k]) App.sound('tick'); App.save(); },
     sxCardio() {
@@ -556,5 +581,25 @@
     restSkip() { closeRest(); },
   });
 
-  App.Session = { start, open, close, render, finish, isOpen, swapCurrent, lowerCurrent, skipCurrent };
+  function syncWithPlan() {
+    const a = S().active; if (!a) return false;
+    const slot = E.slotById(a.slot); if (!slot) return false;
+    a.key = slot.key;
+    const want = E.exercisesFor(slot.key, slot.week, slot.id);
+    const cur = a.steps[a.step];
+    const started = (st) => st.sets.some((x) => x.done) || st.skipped || a.steps.indexOf(st) < a.step;
+    const keep = a.steps.filter((x) => x.t === 'ex' && started(x));
+    const have = new Set(keep.map((x) => x.id).concat(keep.map((x) => x.base)));
+    const fresh = want.filter((e) => !have.has(e.id) && !have.has(e.base)).map((e) => exStep(e.id, e.base, e.sets, slot.id, e));
+    const head = a.steps.filter((x) => x.t === 'ready' || (x.t === 'cardio' && x.role === 'warmup'));
+    const tail = a.steps.filter((x) => (x.t === 'cardio' && x.role === 'finisher') || x.t === 'cooldown');
+    a.steps = head.concat(keep, fresh, tail);
+    const i = a.steps.indexOf(cur);
+    a.step = i >= 0 ? i : Math.min(a.steps.length - 1, head.length + keep.length);
+    App.saveNow(); if (isOpen()) render();
+    return true;
+  }
+  // The step being done now for an exercise, for the coach to quote the same numbers.
+  function stepFor(id) { const a = S().active; return a ? a.steps.find((x) => x.t === 'ex' && x.id === id) || null : null; }
+  App.Session = { start, open, close, render, finish, isOpen, swapCurrent, lowerCurrent, skipCurrent, syncWithPlan, stepFor, discard, expireStale };
 })();

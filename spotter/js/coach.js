@@ -62,7 +62,7 @@
     },
     ready: (c) => {
       const sl = c.todays || c.next; if (!sl) return N.ok(c);
-      const f = E.exercisesFor(sl.key, sl.week, sl.id)[0]; const sg = E.suggest(f.id, sl.id);
+      const f = E.exercisesFor(sl.key, sl.week, sl.id)[0]; const sg = E.suggest(f.id, sl.id, f);
       return { text: sg.mode === 'find' ? 'Love it. First up is the ' + lower(D.EX[f.id].name) + '. Start light and I’ll help you find your weights as you go.' : 'Love it. First up is the ' + lower(D.EX[f.id].name) + ' at ' + sg.title + '. ' + sg.why, replies: [a('Start session', 'start', sl.id), a('Preview first', 'preview', sl.id)] };
     },
     sore_where: () => ({ text: 'Where are you sore?', replies: [a('Legs', 'ease', 'legs'), a('Upper body', 'ease', 'upper'), a('All over', 'ease', 'all')] }),
@@ -89,7 +89,7 @@
     post_very: () => ({ text: 'Then I pushed you a bit hard. I’ve taken a step off everything next session. Go for a gentle walk today, and tell me if anything feels sharp rather than achy.', replies: [r('Okay', 'ok')] }),
 
     // Missed session
-    missed: (c) => { const m = c.miss; if (!m) return N.ok(c); return { text: cap(dayWord(E.slotDate(m))) + '’s session didn’t happen. All good, it happens to everyone. Want to fit it in?', replies: [a('Today', 'catchup', m.id), a('Tomorrow', 'move', m.id + '|' + addDays(c.t, 1)), a('Skip it', 'skip', m.id)] }; },
+    missed: (c) => { const m = c.miss; if (!m) return N.ok(c); return { text: cap(dayWord(E.slotDate(m))) + '’s session didn’t happen. All good, it happens to everyone. Want to fit it in?', replies: [a('Today', 'catchup', m.id), (() => { const d = E.freeDayAfter(c.t, 0); return a(cap(dayWord(d)), 'move', m.id + '|' + d); })(), a('Skip it', 'skip', m.id)] }; },
     on_today: (c, id) => ({ text: 'It’s on for today. Ready when you are.', replies: [a('Start now', 'start', id)] }),
 
     // Food
@@ -140,14 +140,14 @@
     swapped: (c, name) => ({ text: 'Switched to the ' + lower(name) + '. Same muscles, so the plan still holds.', replies: [] }),
     lowered: (c, w) => ({ text: 'Done, ' + w + ' for the rest of your sets.', replies: [] }),
     weight_q: () => {
-      if (session && session.exId) { const sg = E.suggest(session.exId, session.slot); return { text: (sg.mode === 'find' ? 'Start around ' + App.fmtKg(D.EX[session.exId].start) + ' kg. ' : sg.title + '. ') + sg.why, replies: [r('Got it', 'ok')] }; }
+      if (session && session.exId) { const sg = E.suggest(session.exId, session.slot, App.Session.stepFor(session.exId) || undefined); return { text: (sg.mode === 'find' ? 'Start around ' + App.fmtKg(D.EX[session.exId].start) + ' kg. ' : sg.title + '. ') + sg.why, replies: [r('Got it', 'ok')] }; }
       return { text: 'Every exercise shows my weight for you before the first set. It’s based on last time and how it felt.', replies: [r('Got it', 'ok')] };
     },
     motivation: () => ({ text: 'Make a deal with me: go, do the warm-up and the first exercise. If you still want to leave after that, leave. Deal?', replies: [r('Deal', 'deal'), r('Not today', 'cant_make')] }),
     deal: () => ({ text: 'Good. That’s usually all it takes.', replies: [] }),
     progress: () => {
       const t = E.totals(); const h = E.liftHistory();
-      const best = Object.keys(h).filter((id) => D.EX[id].unit === 'kg' && h[id].length > 1).map((id) => ({ id, d: h[id][h[id].length - 1].v - h[id][0].v })).sort((x, y) => y.d - x.d)[0];
+      const best = Object.keys(h).filter((id) => D.EX[id].unit === 'kg' && !D.EX[id].assist && h[id].length > 1).map((id) => ({ id, d: h[id][h[id].length - 1].v - h[id][0].v })).sort((x, y) => y.d - x.d)[0];
       return { text: t.done + ' ' + App.plural(t.done, 'session') + ' in.' + (best && best.d > 0 ? ' Your ' + lower(D.EX[best.id].name) + ' is up ' + App.fmtKg(best.d) + ' kg since your first go.' : ' Give it two weeks and the numbers start moving.'), replies: [a('See my progress', 'progress')] };
     },
     dinners_q: () => ({ text: 'Your five dinners for this week are picked from the food you like.', card: { type: 'dinners' }, replies: [a('See them all', 'dinners'), a('Shuffle them', 'shuffle')] }),
@@ -332,6 +332,7 @@
     if (m) { m.text = text || (res.error || '…'); m.replies = replies; m.card = res.card || null; delete m.live; if (res.error && text) m.text += '\n\n' + res.error; }
     else if (text || res.error) m = push({ from: 'coach', text: text || res.error, replies, card: res.card || null, urgent: false });
     res.changed.forEach((c) => note(c));
+    if (res.changed.length && S().active) App.Session.syncWithPlan();
     App.save();
     if (res.changed.length && App.tab !== 'coach') App.render();
     App.onCoachMessage && App.onCoachMessage(m); App.sound('message'); App.haptic();
@@ -356,7 +357,7 @@
       const w = E.week(); L.push('This week: ' + w.train + '/' + w.trainMax + ' sessions, ' + w.eat + '/5 good food days');
     }
     if (p.cuisines) L.push('Eats: ' + p.cuisines.map((c) => (D.CUISINES.find((x) => x.id === c) || {}).name).join(', '));
-    if (session && session.exId) L.push('Right now: in the gym, on the ' + D.EX[session.exId].name + '. App suggests ' + E.suggest(session.exId, session.slot).title + '.');
+    if (session && session.exId) L.push('Right now: in the gym, on the ' + D.EX[session.exId].name + '. App suggests ' + E.suggest(session.exId, session.slot, App.Session.stepFor(session.exId) || undefined).title + '.');
     return L.join('\n');
   }
   async function askAI() {
