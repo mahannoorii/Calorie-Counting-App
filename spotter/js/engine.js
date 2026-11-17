@@ -390,6 +390,12 @@
   function suggest(id, slotId, o) {
     const ex = D.EX[id]; const [lo, hi] = (o && o.reps) || ex.reps || [10, 12];
     const last = lastPerf(id); const step = stepOf(id);
+    // a target the coach set, until the next time this exercise is logged
+    const tg = S().targets && S().targets[id];
+    if (tg && !S().log.slice(tg.n || 0).some((l) => l.ex.some((e) => e.id === id && e.sets.length))) {
+      const u = ex.unit === 'sec' ? ' seconds' : ex.unit === 'reps' ? (ex.perSide ? ' each side' : ' reps') : '';
+      return { mode: 'coach', w: ex.unit === 'kg' ? tg.w : 0, r: tg.r, title: ex.unit === 'kg' ? App.fmtKg(tg.w) + ' kg' + (ex.assist ? ' help' : '') : tg.r + u, why: 'Your coach: ' + (tg.why || 'aim for ' + tg.r + ' reps.') };
+    }
     if (ex.unit === 'reps' || ex.unit === 'sec') {
       const u = ex.unit === 'sec' ? 'seconds' : ex.perSide ? 'each side' : 'reps';
       if (!last) return { mode: 'find', w: 0, r: ex.start || lo, title: (ex.start || lo) + ' ' + u, why: 'First time. Take it steady and keep it tidy.' };
