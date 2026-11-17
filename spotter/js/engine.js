@@ -645,6 +645,15 @@
   }
 
   // ── Food helpers ──────────────────────────────────────────────────────────
+  // The first day there's anything to log food for: when they started with Spotter.
+  function foodFirstDay() { const s = S(); return [s.profile && s.profile.created, s.plan && s.plan.created].filter(Boolean).sort()[0] || today(); }
+  // Days in the last week with no food logged (oldest first); today too if asked.
+  function foodGaps(withToday) {
+    const s = S(); const t = today(); const first = foodFirstDay(); const out = [];
+    for (let i = 7; i >= 1; i--) { const d = addDays(t, -i); if (d >= first && !s.food[d]) out.push(d); }
+    if (withToday && !s.food[t]) out.push(t);
+    return out;
+  }
   function cuisines() { const p = S().profile; return p && p.cuisines && p.cuisines.length ? p.cuisines : ['aussie', 'italian', 'chinese']; }
   // Five weeknight dinners from the cuisines this person eats; "Shuffle" moves the seed.
   function dinners(wk) {
@@ -697,6 +706,9 @@
     });
     add({ id: 'eatout', type: 'Food', icon: 'fork', title: 'Eating out', sub: 'Get your order picked', act: 'openEatOut', keys: 'restaurant dinner lunch menu order eating out cafe' });
     add({ id: 'dinners', type: 'Food', icon: 'list', title: 'This week’s dinners', sub: 'Five easy weeknight meals', act: 'openDinners', keys: 'meals recipes dinner cook week ideas' });
+    const bw = App.Body && App.Body.latest();
+    add({ id: 'body', type: 'Body', icon: 'scale', title: 'Body weight', sub: bw ? App.fmtKg(Math.round(bw.kg * 10) / 10) + ' kg · ' + fmtDate(bw.d, 'dm') : 'Your weight over time', act: 'go', data: 'body', keys: 'weight weigh scale bodyweight kg trend graph chart gain loss lose' });
+    add({ id: 'logweight', type: 'Body', icon: 'plus', title: 'Log your weight', sub: 'Add a weigh-in', act: 'bodyLog', keys: 'weigh in scale log weight kg' });
     add({ id: 'logfood', type: 'Food', icon: 'leaf', title: 'Log today’s food', sub: 'One tap', act: 'go', data: 'eat', keys: 'food check in log eating today' });
     Object.keys(D.MOMENTS).forEach((k) => add({ id: 'moment:' + k, type: 'Food', icon: D.MOMENTS[k].icon, title: D.MOMENTS[k].title, sub: 'A simple plan', act: 'openMoment', data: k, keys: 'big meal plan ' + k }));
     Object.keys(D.MENUS).forEach((k) => add({ id: 'menu:' + k, type: 'Restaurants', icon: 'fork', title: D.MENUS[k].name + ' restaurant', sub: 'What to order', act: 'openMenu', data: '|' + k, keys: 'restaurant menu order ' + D.MENUS[k].name }));
@@ -766,7 +778,7 @@
     buildPlan, splitFor, SPLITS, phaseFor, timeOf, cardioOptions, swapsFor, planIds, regionOf, fixPlanForKit,
     slotDate, isDone, isSkipped, reschedule, ensureAhead, streakBack, allSlots, openSlots, slotsOn, nextOpen, missed, slotById, freeDayAfter, sessionName, sessionKeys, sessionTag, exercisesFor,
     lastPerf, stepOf, effortWord, suggest, predictNext, prFor, prText, bestOf, prCount,
-    sessionsInWeek, plannedInWeek, targetInWeek, foodScore, week, streakWeeks, totals, partnerRewards, liftHistory, FOOD_TARGET,
+    sessionsInWeek, plannedInWeek, targetInWeek, foodScore, foodGaps, foodFirstDay, week, streakWeeks, totals, partnerRewards, liftHistory, FOOD_TARGET,
     upNext, coachTriggers, cuisines, dinners, detectCuisine, extractPlace,
     searchIndex, search, suggestions, recents, track,
   };

@@ -79,6 +79,7 @@
       app.className = 'app app--tabs' + (App.tab === 'coach' ? ' app--coach' : '');
       app.innerHTML = App.Views.shell();
       App.entering = false;
+      if (App.tab === 'body') App.Body.mount();
     }
     if (keep) App.scrollTo(keep);
     App.Views.animateBars();
@@ -97,6 +98,7 @@
   function goTab(v) {
     App.closeLayer(true); App.Views.closeSearch();
     if (App.tab !== v) {
+      if (v === 'eat') App.foodSel = null; // the food card opens on today
       App.tab = v; App.entering = true; App.render();
       App.scrollTo(v === 'coach' ? 'end' : 0);
       if (v === 'coach') { App.Coach.markRead(); App.Views.refreshBadge(); }
@@ -127,6 +129,7 @@
 
   // ── Food, places and awards ───────────────────────────────────────────────
   const FOOD_TOAST = { on: 'Nice. On track today.', part: 'Logged. Partly still counts.', off: 'Logged. Tomorrow’s a fresh start.' };
+  const FOOD_PAST = { on: 'on track', part: 'partly on track', off: 'off track' };
   App.logFood = function (date, v, fromCoach) {
     const had = S().food[date];
     S().food[date] = { s: v };
@@ -135,7 +138,7 @@
     App.sound(v === 'on' ? 'set' : 'soft'); App.haptic(v === 'on' ? 'success' : null);
     if (!fromCoach) {
       App.render();
-      App.toast(FOOD_TOAST[v], v === 'on' ? 'leaf' : 'check');
+      App.toast(date === today() ? FOOD_TOAST[v] : App.Views.dayWord(date).replace(/ \d.*$/, '') + ' logged as ' + FOOD_PAST[v], v === 'on' ? 'leaf' : 'check');
       if (v !== 'on' && date === today() && (!had || had.s === 'on') && !App.Coach.isBusy()) setTimeout(() => { App.Coach.note('Today logged as ' + (v === 'part' ? 'partly on track' : 'off track')); App.Coach.post('food_why'); }, 900);
     } else if (App.tab !== 'coach') App.render();
     App.checkAwards(); setTimeout(() => App.Views.celebrate(), 700);
@@ -178,13 +181,42 @@
   };
 
   // Restaurants: name in, menu out with the order already picked.
-  function placeFlow(text) {
-    let name = String(text || '').replace(/\|/g, '/').trim(); if (!name) return;
-    if (name === name.toLowerCase()) name = name.replace(/\b([a-z])/g, (m) => m.toUpperCase());
-    const cu = E.detectCuisine(name);
+  // With Claude switched on, any restaurant or dish anywhere is looked up on the web; without
+  // it (or when asked), a typical menu for the kind of food.
+  function placeFlow(text, opts) {
+    opts = opts || {};
+    let name = String(text || '').replace(/\|/g, '/').trim().slice(0, 80); if (!name) return;
+    if (name === name.toLowerCase()) name = name.replace(/(^|\s)(\S)/g, (m) => m.toUpperCase());
     E.track('eatout');
+    if (App.AI.ready() && !opts.typical) return lookupFlow(name, opts.force);
+    const known = S().places.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    const cu = E.detectCuisine(name) || (known && D.MENUS[known.cuisine] ? known.cuisine : null);
     if (cu) { App.rememberPlace(name, cu); if (App.tab === 'eat') App.render(); App.Views.menuSheet(name, cu); }
     else App.Views.cuisinePickSheet(name);
+  }
+  let lookingUp = null; let lookupN = 0;
+  function lookupFlow(name, force) {
+    const w = App.AI.where(); const cached = App.Views.placeMenu(name); const pl = S().places.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    // looked up recently from the same place: show it again (a "Search again" button is there)
+    if (!force && cached && cached.src === 'web' && pl && App.nowMs() - (cached.at || 0) < 14 * 86400000 && (cached.where || '') === (w.label || '')) {
+      App.rememberPlace(pl.name, pl.cuisine); if (App.tab === 'eat') App.render(); App.Views.menuSheet(pl.name, pl.cuisine); return;
+    }
+    if (lookingUp) { App.toast('Still looking up ' + lookingUp.name + '…', 'search'); return; }
+    if (navigator.onLine === false) { App.toast('You’re offline, so here’s a typical menu', 'alert'); return placeFlow(name, { typical: true }); }
+    const id = ++lookupN; lookingUp = { id, name };
+    App.Views.lookupSheet(name, id);
+    App.AI.lookupFood(name, { progress: (p) => App.Views.lookupProgress(id, p) }).then((r) => {
+      if (!lookingUp || lookingUp.id !== id) return; lookingUp = null;
+      if (r.error === 'cancelled') return;
+      if (r.error === 'noweb') return App.Views.lookupMessage(id, name, 'Web search is switched off for your Anthropic account. Turn it on in the Claude Console under Settings, then Capabilities, or use a typical menu for now.', true);
+      if (r.error) return App.Views.lookupMessage(id, name, r.error, true);
+      if (r.text) return App.Views.lookupMessage(id, name, r.text, false);
+      App.rememberPlace(name, r.cuisine, { picks: r.picks, ok: r.ok, treats: r.treats, at: App.nowMs(), src: 'web', title: r.name, kind: r.kind, summary: r.summary, found: r.found, tip: r.tip, sources: r.sources, where: w.label || '' });
+      App.sound('set'); App.haptic('success');
+      if (App.tab === 'eat') App.render();
+      if (App.Views.lookupOpen(id)) App.Views.menuSheet(name, r.cuisine, true);
+      else App.toast('Your order for ' + r.name + ' is ready under Recent', 'check');
+    });
   }
 
   // ── Event delegation ──────────────────────────────────────────────────────
@@ -236,7 +268,7 @@
     root.style.setProperty('--vvh', Math.round(h) + 'px');
     root.style.setProperty('--vvtop', Math.round(top) + 'px');
     root.classList.toggle('kb-open', !!vv && window.innerHeight - h > 120);
-    if (window.innerWidth !== lastW) { lastW = window.innerWidth; requestAnimationFrame(keepPlace); }
+    if (window.innerWidth !== lastW) { lastW = window.innerWidth; requestAnimationFrame(() => { if (App.tab === 'body') App.Body.mount(); keepPlace(); }); }
   }
   if (vv) { vv.addEventListener('resize', fitViewport); vv.addEventListener('scroll', fitViewport); }
   window.addEventListener('resize', fitViewport);
@@ -351,9 +383,40 @@
     },
 
     // Food
-    foodLog(el) { App.logFood(today(), el.dataset.v); },
+    // "2026-11-13|on", or just "on" for today
+    foodLog(el) { const [a, b] = String(el.dataset.v).split('|'); const d = b ? a : today(); const v = b || a; if (!App.Body.isDay(d) || d > today() || !FOOD_PAST[v]) return; App.logFood(d, v); },
+    foodDay(el) { const d = el.dataset.v; if (!App.Body.isDay(d) || d > today()) return; App.foodSel = d; App.haptic(); App.render(); },
+    foodWeek(el) { const sel = App.foodSel || today(); let d = addDays(sel, 7 * Number(el.dataset.v)); if (d > today()) d = today(); App.foodSel = d; App.render(); },
+    foodClear(el) { const d = el.dataset.v; delete S().food[d]; App.save(); App.render(); App.toast(App.Views.dayWord(d).replace(/ \d.*$/, '') + ' cleared', 'check'); },
+    foodAsk() { const gaps = E.foodGaps(App.hour() >= 15); if (gaps.length) App.Views.foodAskSheet(gaps); },
+    foodAskLog(el) {
+      const [d, v] = String(el.dataset.v).split('|'); if (!App.Body.isDay(d) || d > today() || !FOOD_PAST[v]) return;
+      App.logFood(d, v, true);
+      const L = App.topLayer(); const row = L && L.querySelector('[data-foodrow="' + d + '"]');
+      if (row) { row.querySelectorAll('.seg__btn').forEach((b) => { const on = b.dataset.v === el.dataset.v; b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', on); }); row.classList.add('is-done'); }
+      const left = L ? [...L.querySelectorAll('[data-foodrow]')].filter((x) => !x.classList.contains('is-done')).length : 0;
+      if (L && !left) setTimeout(() => { if (App.topLayer() === L) { App.closeLayer(); App.toast('All caught up. Thanks for being honest.', 'leaf'); } }, 650);
+    },
     openEatOut() { goTab('eat'); const i = App.$('#eatOutIn'); if (i) { i.scrollIntoView({ block: 'center' }); i.focus(); } },
     eatOutGo() { const inp = App.$('#eatOutIn'); const v = (inp && inp.value || '').trim(); if (!v) { if (inp) inp.focus(); return; } inp.value = ''; inp.blur(); placeFlow(v); },
+    eatLookup(el) { const [name, force] = String(el.dataset.v).split('|'); const had = !!App.topLayer(); App.closeLayer(true); setTimeout(() => placeFlow(name, { force: !!force }), had ? 320 : 0); },
+    eatLookupCancel() { App.AI.cancelLookup(); lookingUp = null; App.closeLayer(); App.toast('Stopped', 'check'); },
+    eatTypical(el) { const name = el.dataset.v; App.closeLayer(true); setTimeout(() => placeFlow(name, { typical: true }), 320); },
+    eatWhere() { App.Views.whereSheet(); const i = App.$('#whereIn'); if (i) i.focus(); },
+    whereSave() {
+      const v = ((App.$('#whereIn') || {}).value || '').trim().slice(0, 60);
+      App.AI.setWhere(v ? { city: v } : null); App.closeLayer(); App.render();
+      App.toast(v ? 'Searching near ' + v : 'Going by your time zone', 'pin');
+    },
+    whereReset() { App.AI.setWhere(null); App.closeLayer(); App.render(); App.toast('Going by your time zone' + (App.AI.where().label ? ': ' + App.AI.where().label : ''), 'pin'); },
+    whereGps() {
+      if (!navigator.geolocation) { App.toast('This phone can’t share its location here. Type the city instead.', 'alert'); return; }
+      App.toast('Finding where you are…', 'pin');
+      navigator.geolocation.getCurrentPosition((pos) => {
+        App.AI.setWhere({ lat: Math.round(pos.coords.latitude * 1000) / 1000, lon: Math.round(pos.coords.longitude * 1000) / 1000 });
+        App.closeLayer(); App.render(); App.toast('Searching near you for the next few hours', 'pin');
+      }, () => App.toast('Couldn’t get your location. Type the city instead.', 'alert'), { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 });
+    },
     pickCuisine(el) { const [name, cu] = el.dataset.v.split('|'); App.closeLayer(); App.rememberPlace(name, cu); if (App.tab === 'eat') App.render(); setTimeout(() => App.Views.menuSheet(name, cu), 300); },
     openMenu(el) {
       const [name, cu] = String(el.dataset.v).split('|');
@@ -484,6 +547,10 @@
       const d = addDays(t, -i); if (d < s.plan.start) break;
       s.food[d] = { s: [3, 7].includes(i) ? 'part' : i === 5 ? 'off' : 'on' };
     }
+    // five weeks of morning weigh-ins, drifting down a little, with the usual daily noise
+    s.body = { log: [], goal: null, range: '3m' };
+    for (let i = 35, w = 84.6; i >= 0; i--) { w -= 0.035; if (i % 7 === 2 || i % 7 === 5) continue; s.body.log.push({ d: addDays(t, -i), kg: Math.round((w + Math.sin(i * 2.3) * 0.45) * 10) / 10 }); }
+    App.Body.setGoal(80);
     s.places = [{ name: 'Italian Bowl Newtown', cuisine: 'italian', at: Date.now() - 3 * 864e5 }, { name: 'Chat Thai', cuisine: 'thai', at: Date.now() - 6 * 864e5 }];
     s.events.push({ id: App.uid(), type: 'eatout', date: addDays(t, -3), title: 'Italian Bowl Newtown', cuisine: 'italian', planned: true });
     const sat = addDays(weekStart(t), 5);
@@ -496,14 +563,29 @@
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
+  // Opening the app: if days from the last week (or this evening) have no food logged, ask
+  // once. Dismissed, it waits until there's a new day to ask about or half a day has passed.
+  function askFood() {
+    const s = S(); if (!s.profile || !s.plan || App.ob.active || App.topLayer() || App.Session.isOpen() || App.Views.isSearchOpen() || s.active) return;
+    const evening = App.hour() >= 18; const gaps = E.foodGaps(evening); if (!gaps.length) return;
+    const key = gaps.join(','); const last = s.seen.foodAsk || {}; const asked = String(last.key || '').split(',');
+    // nothing new since the last time it asked (some may have been filled in since)
+    if (gaps.every((d) => asked.includes(d)) && App.nowMs() - (last.at || 0) < 12 * 3600000) return;
+    s.seen.foodAsk = { key, at: App.nowMs() };
+    if (gaps.includes(today())) s.chatPosted['evening_food:' + today()] = true; // the coach won't ask the same thing
+    App.save();
+    setTimeout(() => { if (!App.topLayer() && !App.Session.isOpen() && !App.ob.active && !App.Views.isSearchOpen()) App.Views.foodAskSheet(gaps); }, 700);
+  }
+  App.askFood = askFood;
   function boot() {
     App.applyTheme(); App.fxInit(); App.Coach.initAI();
     if (!S().profile) { App.ob.active = true; App.ob.phase = 'welcome'; }
     App.render();
+    askFood();
     setTimeout(runCheckIns, 600);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible' || !S().profile || App.ob.active || App.topLayer() || App.Session.isOpen() || App.Views.isSearchOpen()) return;
-      App.render(); runCheckIns();
+      App.render(); askFood(); runCheckIns();
     });
     if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.claude) {
       window.addEventListener('load', () => { navigator.serviceWorker.register('service-worker.js').catch(() => {}); });

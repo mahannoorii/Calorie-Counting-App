@@ -93,7 +93,8 @@
     log.filter((l) => l.date >= from).forEach((l) => { count[App.dow(l.date)]++; });
     const n = Math.min(6, Math.max(2, sessions.length || 4));
     const days = [0, 1, 2, 3, 4, 5, 6].sort((a, b) => count[b] - count[a] || a - b).slice(0, n).sort((a, b) => a - b);
-    return { log, program: { source: 'Iron Log', sessions, next, count: log.length, first: log.length ? log[0].date : '' }, customEx, days, count: log.length, first: log.length ? log[0].date : '', last: lastDate, unknown };
+    const body = App.Body ? App.Body.fromBackup(data) : [];
+    return { log, body, program: { source: 'Iron Log', sessions, next, count: log.length, first: log.length ? log[0].date : '' }, customEx, days, count: log.length, first: log.length ? log[0].date : '', last: lastDate, unknown };
   }
 
   // The same workout logged in both apps (you're running them side by side for a while):
@@ -126,6 +127,7 @@
     const g = s.profile && s.profile.gym;
     if (g) added.forEach((l) => l.ex.forEach((e) => (D.EX[e.id] ? D.EX[e.id].eq : []).forEach((t) => { if (!g.kit.includes(t)) g.kit.push(t); })));
     s.ironlog = { synced: App.today(), last: imp.last || '', count: imp.count };
+    imp.bodyAdded = App.Body ? App.Body.merge(imp.body) : 0;
     resync();
     App.checkAwards(true);
     App.saveNow();
@@ -155,7 +157,7 @@
     return readFile(file).then((imp) => {
       const added = apply(imp);
       const nx = App.E.upNext();
-      return { added: added.length, next: nx && nx.slot ? App.E.sessionName(nx.slot) : '' };
+      return { added: added.length, weighins: imp.bodyAdded || 0, next: nx && nx.slot ? App.E.sessionName(nx.slot) : '' };
     });
   }
 

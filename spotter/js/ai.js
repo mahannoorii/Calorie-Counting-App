@@ -1,8 +1,9 @@
 /* Spotter — the coach's brain: Claude, called straight from the phone with the member's own
    Anthropic API key. It reads the member's whole training picture (program, every recent
-   set, records, food, what's coming up), answers like a trainer who knows them, and can
-   change the plan with tools: move, skip, ease or shorten a session, swap an exercise, set
-   the next target, log food, put a restaurant's picks on screen. Replies stream in.
+   set, records, food, body weight, what's coming up), answers like a trainer who knows them,
+   and can change the plan with tools: move, skip, ease or shorten a session, swap an
+   exercise, set the next target, log food and weigh-ins, put a restaurant's picks on screen.
+   It can search the web, so any restaurant or dish anywhere can be looked up. Replies stream in.
    The key is kept in its own storage slot on this phone, never in backups. */
 (function () {
   'use strict';
@@ -20,6 +21,7 @@
     'claude-haiku-5-5': { name: 'Claude Haiku 5.5', note: 'Quickest and cheapest. Less depth.', p: [0.1, 0.5, 0.01] },
   };
   const DEFAULT_MODEL = 'claude-opus-5-5';
+  const SEARCH_USD = 0.01; // each web search
   const MAX_STEPS = 6; // tool rounds per message
 
   // ── Key and settings ──────────────────────────────────────────────────────
@@ -44,7 +46,8 @@
   function addUsage(model, u) {
     if (!u) return;
     const m = MODELS[model] || MODELS[DEFAULT_MODEL]; const [pi, po, pc] = m.p;
-    const cost = ((u.input_tokens || 0) * pi + (u.cache_creation_input_tokens || 0) * pi * 1.25 + (u.cache_read_input_tokens || 0) * pc + (u.output_tokens || 0) * po) / 1e6;
+    const searches = (u.server_tool_use && u.server_tool_use.web_search_requests) || 0;
+    const cost = ((u.input_tokens || 0) * pi + (u.cache_creation_input_tokens || 0) * pi * 1.25 + (u.cache_read_input_tokens || 0) * pc + (u.output_tokens || 0) * po) / 1e6 + searches * SEARCH_USD;
     const mo = today().slice(0, 7); const us = settings().usage;
     Object.keys(us).forEach((k) => { if (k < mo.slice(0, 4) + '-00' && k !== mo) delete us[k]; });
     const cur = us[mo] || (us[mo] = { msgs: 0, usd: 0 });
@@ -52,6 +55,61 @@
   }
   function countMessage() { const mo = today().slice(0, 7); const us = settings().usage; const cur = us[mo] || (us[mo] = { msgs: 0, usd: 0 }); cur.msgs++; }
   function monthUsage() { return settings().usage[today().slice(0, 7)] || { msgs: 0, usd: 0 }; }
+
+  // ── Where they are ────────────────────────────────────────────────────────
+  // The phone's time zone follows them when they travel (Istanbul, London, Amsterdam), so
+  // it's the default; they can type a city, or share their location for a few hours.
+  function tz() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } }
+  function tzCity(z) { const c = String(z || '').split('/').pop().replace(/_/g, ' '); return !c || /^(UTC|GMT|Etc|Universal|Zulu)/i.test(c) || /^[+-]?\d/.test(c) ? '' : c; }
+  function where() {
+    const w = settings().where || {}; const z = tz();
+    if (w.lat != null && App.nowMs() - (w.at || 0) < 6 * 3600000) return { kind: 'gps', label: 'Near you', lat: w.lat, lon: w.lon, tz: z, city: '' };
+    if (w.city && w.tz === z) return { kind: 'city', label: w.city, city: w.city, tz: z };
+    return { kind: 'tz', label: tzCity(z), city: tzCity(z), tz: z };
+  }
+  function setWhere(o) { settings().where = o ? Object.assign({ tz: tz(), at: App.nowMs() }, o) : null; App.save(); }
+  function userLocation() {
+    const w = where(); const o = { type: 'approximate' };
+    if (w.city) o.city = w.city.slice(0, 60); if (w.tz && w.kind !== 'city') o.timezone = w.tz;
+    return o.city || o.timezone ? o : null;
+  }
+  function whereLine() {
+    const w = where();
+    if (w.kind === 'gps') return 'at about ' + w.lat.toFixed(3) + ', ' + w.lon.toFixed(3) + ' (their phone\'s location)' + (w.tz ? ', time zone ' + w.tz : '');
+    if (w.kind === 'city') return 'in or near ' + w.city;
+    return (w.city ? 'in or near ' + w.city : 'somewhere unknown') + (w.tz ? ' (going by their phone\'s time zone, ' + w.tz + ')' : '');
+  }
+  // Web search and page reading, unless the account has them switched off.
+  function webTools(searches) {
+    const st = settings(); const out = [];
+    if (st.noWeb && App.nowMs() - st.noWeb < 24 * 3600000) return out;
+    const ws = { type: 'web_search_20260209', name: 'web_search', max_uses: searches || 4 }; const loc = userLocation(); if (loc) ws.user_location = loc;
+    out.push(ws);
+    if (!(st.noFetch && App.nowMs() - st.noFetch < 24 * 3600000)) out.push({ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 3, max_content_tokens: 12000 });
+    if (st.webDirect && st.webDirect[settings().model]) out.forEach((t) => { t.allowed_callers = ['direct']; });
+    return out;
+  }
+  // A 400 saying web search or web fetch isn't enabled: note it and carry on without.
+  function webOff(Anthropic, e) {
+    if (!(Anthropic && e instanceof Anthropic.BadRequestError)) return false;
+    const m = String(e.message || ''); const st = settings();
+    if (/allowed_callers/i.test(m) && !(st.webDirect && st.webDirect[st.model])) { st.webDirect = Object.assign({}, st.webDirect, { [st.model]: true }); App.save(); return true; }
+    if (/web[ _]?fetch/i.test(m) && !/web[ _]?search/i.test(m)) { st.noFetch = App.nowMs(); App.save(); return true; }
+    if (/web[ _]?search/i.test(m)) { st.noWeb = App.nowMs(); App.save(); return true; }
+    return false;
+  }
+  // Where the answer came from: pages it cited and pages it read.
+  function addSources(content, into) {
+    const seen = new Set(into.map((x) => x.url));
+    const put = (url, title) => { if (!url || seen.has(url) || !/^https?:\/\//.test(url) || into.length >= 6) return; seen.add(url); into.push({ url, title: String(title || '').slice(0, 90) }); };
+    (content || []).forEach((b) => {
+      if (b.type === 'text' && Array.isArray(b.citations)) b.citations.forEach((c) => { if (c && c.url) put(c.url, c.title); });
+    });
+    (content || []).forEach((b) => {
+      if (b.type === 'web_fetch_tool_result' && b.content && b.content.url) put(b.content.url, b.content.content && b.content.content.title);
+    });
+    return into;
+  }
 
   // ── What the coach knows ──────────────────────────────────────────────────
   const kg = (w) => App.fmtKg(w);
@@ -140,6 +198,15 @@
       L.push('- ' + exName(id) + ' [' + id + ']: ' + h.length + ' sessions; last ' + last.date + ' ' + setsText(id, last.sets) + (best ? '; best ' + best.text : '') + trend + (tg ? '; coach target set: ' + (tg.w ? kg(tg.w) + ' kg × ' : '') + tg.r : ''));
     });
     if (!Object.keys(by).length) L.push('Nothing yet.');
+    // Body weight
+    sec('Body weight');
+    const bs = App.Body && App.Body.summary();
+    if (!bs) L.push('No weigh-ins logged yet.');
+    else {
+      L.push('Latest ' + kg(bs.last.kg) + ' kg on ' + bs.last.d + '; smoothed trend ' + kg(Math.round(bs.trend * 10) / 10) + ' kg; ' + (bs.rate != null ? 'changing ' + (bs.rate > 0 ? '+' : '') + kg(Math.round(bs.rate * 100) / 100) + ' kg a week over the last 4 weeks' : 'not enough readings yet for a weekly rate') + '; ' + bs.count + ' weigh-ins.');
+      if (bs.goal) L.push('Goal weight ' + kg(bs.goal.kg) + ' kg: ' + kg(bs.goal.left) + ' kg to go' + (bs.goal.weeks ? ', about ' + bs.goal.weeks + ' weeks at this pace' : '') + '.');
+      const wk = App.Body.weekly(8); if (wk.length > 1) L.push('Weekly averages: ' + wk.map((w) => fmtDate(w.wk, 'dm') + ' ' + kg(w.avg)).join('; ') + '.');
+    }
     // Food
     sec('Eating, last 14 days');
     const fd = []; for (let i = 13; i >= 0; i--) { const d = addDays(t, -i); const f = s.food[d]; if (f) fd.push(fmtDate(d, 'short') + ' ' + ({ on: 'on track', part: 'partly', off: 'off track' }[f.s] || f.s) + (f.why ? ' (' + f.why + ')' : '')); }
@@ -156,7 +223,7 @@
     const ss = App.Coach.sessionContext && App.Coach.sessionContext();
     let where = '';
     if (ss && ss.exId) { const sg = App.E.suggest(ss.exId, ss.slot, App.Session.stepFor(ss.exId) || undefined); where = ' They are in the gym mid-session, on the ' + exName(ss.exId) + ' [' + ss.exId + ']. The app is suggesting ' + sg.title + ' (' + sg.why + ').'; }
-    return 'Now: ' + DOW_LONG[dow(today())] + ' ' + fmtDate(today(), 'dm') + ', ' + ((h % 12) || 12) + ':' + m + (h < 12 ? ' am' : ' pm') + '.' + where;
+    return 'Now: ' + DOW_LONG[dow(today())] + ' ' + fmtDate(today(), 'dm') + ', ' + ((h % 12) || 12) + ':' + m + (h < 12 ? ' am' : ' pm') + '. They are ' + whereLine() + '.' + where;
   }
 
   const RULES = [
@@ -185,14 +252,32 @@
     '- Use the session ids and session keys from the data. Dates are YYYY-MM-DD. For deeper history on one lift, call get_exercise_history.',
     '- With an injury, be conservative: follow any physio or GP advice they mention, leave out what aggravates it, cap weights with max_kg where it helps, and keep their physio in the loop. You are not a physio and never diagnose.',
     '',
+    'Body weight:',
+    '- They log weigh-ins on the Body tab. Talk about the smoothed trend and the weekly rate, not single readings: a kilo or two from day to day is mostly water.',
+    '- When they tell you a weight, log it with log_body_weight. set_weight_goal sets or removes their goal weight.',
+    '- Steady paces: losing about 0.25 to 1 kg a week keeps muscle; gaining about 0.1 to 0.5 kg a week is a lean gain.',
+    '',
+    'Eating out, anywhere in the world:',
+    '- You can search the web (web_search) and read pages (web_fetch). Use them when they ask about a specific restaurant, dish, cafe, food product or place you do not know well, especially abroad or anything local or unusual. Do not search for general training or nutrition questions you can answer yourself.',
+    '- For a restaurant: find that exact place (the right branch, in the city they are in) and its current menu (their own site, delivery apps, menu photos and reviews), search in the local language too, then put your picks on screen with show_restaurant_picks, passing the dishes you found with calorie ranges and protein. For a dish: what it is, how it is usually served there, and a calorie range and protein for a typical portion.',
+    '- Calorie and protein numbers are estimates: give ranges, use published nutrition info when it exists, and say briefly where the numbers came from. They are to help them choose, never a target.',
+    '',
     'Safety:',
-    '- General fitness and healthy-eating guidance only. Never diagnose, never prescribe medication or supplements, and don\'t set calorie targets.',
+    '- General fitness and healthy-eating guidance only. Never diagnose, never prescribe medication or supplements, and don\'t set calorie targets (estimating what a dish has is fine).',
     '- Sharp pain, a joint that feels wrong, dizziness, chest pain or breathing trouble: tell them to stop. Asthma: use the reliever as their action plan says. If it does not settle, see a GP or physio; chest pain or a reliever that is not helping means calling 000.',
     '- If asked whether you are a person, say you are their Spotter coach, powered by Claude.',
   ].join('\n');
 
   // ── Tools ─────────────────────────────────────────────────────────────────
   const str = (d) => ({ type: 'string', description: d });
+  const PICK_PROPS = {
+    name: str('As written on the menu; add the English in brackets if the menu is not in English'),
+    why: str('Why it suits them, under 12 words'),
+    kcal_low: { type: 'integer', description: 'Low end of a calorie estimate for the portion served' },
+    kcal_high: { type: 'integer', description: 'High end of the calorie estimate' },
+    protein_g: { type: 'integer', description: 'Rough grams of protein' },
+    ask_for: { type: 'array', items: { type: 'string' }, description: '0 to 3 requests that make it lighter, each under 6 words, e.g. "Sauce on the side"' },
+  };
   const TOOLS = [
     { name: 'get_exercise_history', description: 'Every logged session of one exercise, oldest first, with all sets. Use for detailed questions about a lift.', input_schema: { type: 'object', properties: { exercise_id: str('Exercise id, e.g. lat_pulldown') }, required: ['exercise_id'] } },
     { name: 'search_exercises', description: 'Find exercises in the app\'s library by name, muscle or movement. Says whether their gym has the equipment and whether it is in their plan. Use before suggesting or swapping in an exercise.', input_schema: { type: 'object', properties: { query: str('Words to match, e.g. "rear delt", "hamstrings", "row"'), gym_only: { type: 'boolean', description: 'Only exercises their gym can do (default true)' } }, required: ['query'] } },
@@ -202,7 +287,14 @@
     { name: 'swap_exercise', description: 'Replace an exercise everywhere in their plan from now on. The new one must be possible at their gym.', input_schema: { type: 'object', properties: { from_exercise_id: str('Exercise in their plan'), to_exercise_id: str('Replacement, from search_exercises') }, required: ['from_exercise_id', 'to_exercise_id'] } },
     { name: 'set_next_target', description: 'Set the weight and reps the app will suggest next time they do an exercise (replaces the automatic suggestion once).', input_schema: { type: 'object', properties: { exercise_id: str('Exercise id'), weight_kg: { type: 'number', description: 'Weight in kg (0 for bodyweight; kg of help for assisted machines)' }, reps: { type: 'integer', description: 'Target reps (or seconds for holds)' }, why: str('Short reason shown to them, under 12 words') }, required: ['exercise_id', 'weight_kg', 'reps', 'why'] } },
     { name: 'log_food', description: 'Log how eating went on a day.', input_schema: { type: 'object', properties: { date: str('YYYY-MM-DD, usually today'), rating: { type: 'string', enum: ['on', 'part', 'off'] } }, required: ['date', 'rating'] } },
-    { name: 'show_restaurant_picks', description: 'Put the app\'s menu card for a restaurant on screen: three picks with what to ask for, which they can lock in. Use when they say where they are eating.', input_schema: { type: 'object', properties: { restaurant: str('Restaurant name as they said it'), cuisine: { type: 'string', enum: Object.keys(D.MENUS) } }, required: ['restaurant', 'cuisine'] } },
+    { name: 'show_restaurant_picks', description: 'Put an order card for a restaurant on screen: up to three picks with what to ask for, which they can lock in. Use when they say where they are eating. If you looked up the real menu (or know this place well), pass your own picks from it with calorie ranges; without picks the app uses a typical menu for the cuisine.', input_schema: { type: 'object', properties: {
+      restaurant: str('Restaurant name'), cuisine: { type: 'string', enum: Object.keys(D.MENUS).concat(['other']), description: 'Closest cuisine, or other' },
+      summary: str('Optional: one short line on what the place is and where'),
+      picks: { type: 'array', description: 'Optional: your picks from their real menu, best first (1 to 3)', items: { type: 'object', properties: PICK_PROPS, required: ['name', 'why'] } },
+      treats: { type: 'array', description: 'Optional: up to 3 dishes to save for a treat', items: { type: 'object', properties: { name: str('Dish'), kcal_low: { type: 'integer' }, kcal_high: { type: 'integer' } }, required: ['name'] } },
+    }, required: ['restaurant', 'cuisine'] } },
+    { name: 'log_body_weight', description: 'Log a body-weight reading for a day. Replaces any reading already on that day.', input_schema: { type: 'object', properties: { kg: { type: 'number' }, date: str('YYYY-MM-DD, default today') }, required: ['kg'] } },
+    { name: 'set_weight_goal', description: 'Set their goal body weight in kg, or 0 to remove the goal.', input_schema: { type: 'object', properties: { kg: { type: 'number' } }, required: ['kg'] } },
     { name: 'update_session', description: 'Change a session: its name, its subtitle, and/or its full list of exercises (each with sets, reps, rest, optional weight cap and note). Applies to every week it appears unless only_session_id is given, in which case only that one day changes.', input_schema: { type: 'object', properties: {
       session_key: str('Session key from the data, e.g. L1 or push'),
       only_session_id: str('Optional: a session id from the schedule to change just that day'),
@@ -233,8 +325,8 @@
     { name: 'forget_note', description: 'Remove one of your notes by its number.', input_schema: { type: 'object', properties: { number: { type: 'integer' } }, required: ['number'] } },
   ].map((t) => Object.assign(t, { eager_input_streaming: true }));
   // Tools that change things, so their effects can be undone together.
-  const MUTATES = new Set(['move_session', 'skip_session', 'adjust_session', 'swap_exercise', 'set_next_target', 'log_food', 'update_session', 'update_all_sessions', 'add_session', 'remove_session', 'set_schedule', 'add_custom_exercise', 'update_gym_equipment', 'remember_note', 'forget_note']);
-  const UNDO_KEYS = ['plan', 'swaps', 'moves', 'skips', 'trims', 'eases', 'targets', 'customEx', 'coachNotes', 'food'];
+  const MUTATES = new Set(['move_session', 'skip_session', 'adjust_session', 'swap_exercise', 'set_next_target', 'log_food', 'log_body_weight', 'set_weight_goal', 'update_session', 'update_all_sessions', 'add_session', 'remove_session', 'set_schedule', 'add_custom_exercise', 'update_gym_equipment', 'remember_note', 'forget_note']);
+  const UNDO_KEYS = ['plan', 'swaps', 'moves', 'skips', 'trims', 'eases', 'targets', 'customEx', 'coachNotes', 'food', 'body'];
   function takeUndo() {
     const s = S(); const p = s.profile || {}; const snap = {};
     UNDO_KEYS.forEach((k) => { snap[k] = s[k] === undefined ? null : s[k]; });
@@ -444,8 +536,16 @@
       return 'Forgot: ' + gone.text;
     },
     show_restaurant_picks(i) {
-      if (!isStr(i.restaurant) || !D.MENUS[i.cuisine]) throw new Error('restaurant and a listed cuisine are required');
-      const name = i.restaurant.replace(/\|/g, '/').slice(0, 60);
+      const own = (Array.isArray(i.picks) ? i.picks : []).map(foodItem).filter(Boolean).slice(0, 3);
+      if (!isStr(i.restaurant) || (!D.MENUS[i.cuisine] && !own.length)) throw new Error('restaurant and a listed cuisine (or your own picks) are required');
+      const name = i.restaurant.replace(/\|/g, '/').slice(0, 60); const cu = D.MENUS[i.cuisine] ? i.cuisine : 'other';
+      if (own.length) {
+        App.rememberPlace(name, cu, { picks: own.map((x) => Object.assign(x, { t: 'pick' })), treats: (Array.isArray(i.treats) ? i.treats : []).map(foodItem).filter(Boolean).slice(0, 3).map((x) => Object.assign(x, { t: 'treat' })), summary: isStr(i.summary) ? i.summary.slice(0, 160) : '', sources: sourcesNow.slice(), src: sourcesNow.length ? 'web' : 'coach', where: where().label, at: App.nowMs() });
+        App.E.track('eatout');
+        pendingCard = { type: 'menu', place: name, cuisine: cu };
+        pendingReplies = [{ label: 'Lock it in', act: 'lock', data: name + '|' + cu }, { label: 'See the full menu', act: 'openMenu', data: name + '|' + cu }];
+        return 'Card shown with your picks. Don\'t repeat them in full; add your own short take.';
+      }
       App.rememberPlace(name, i.cuisine); App.E.track('eatout');
       pendingCard = { type: 'menu', place: name, cuisine: i.cuisine };
       pendingReplies = [{ label: 'Lock it in', act: 'lock', data: name + '|' + i.cuisine }, { label: 'See the full menu', act: 'openMenu', data: name + '|' + i.cuisine }];
@@ -453,7 +553,39 @@
       return 'Card shown with these picks: ' + picks.map((x) => x.n + (x.mods && x.mods.length ? ' (ask for: ' + x.mods.join(', ') + ')' : x.tip ? ' (' + x.tip + ')' : '')).join('; ') + '. Don\'t repeat them in full; add your own short take.';
     },
   };
-  let pendingCard = null; let pendingReplies = null;
+  let pendingCard = null; let pendingReplies = null; let sourcesNow = [];
+  Object.assign(RUN, {
+    log_body_weight(i) {
+      const v = App.Body.parseKg(i.kg); if (v == null) throw new Error('kg must be a body weight between 20 and 400');
+      const d = i.date == null || i.date === '' ? today() : i.date;
+      if (!isDate(d) || d > today()) throw new Error('date must be YYYY-MM-DD, today or earlier');
+      App.Body.add(d, v); App.E.track('weighin');
+      changed.push('Logged ' + kg(v) + ' kg' + (d === today() ? '' : ' for ' + fmtDate(d, 'short')));
+      const b = App.Body.summary();
+      return 'Logged. Trend now ' + kg(Math.round(b.trend * 10) / 10) + ' kg' + (b.rate != null ? ', ' + b.rateText.toLowerCase() : '') + '.';
+    },
+    set_weight_goal(i) {
+      const n = Number(i.kg);
+      if (n === 0) { App.Body.setGoal(null); changed.push('Goal weight removed'); return 'Goal removed.'; }
+      const v = App.Body.parseKg(n); if (v == null) throw new Error('kg must be between 20 and 400, or 0 to remove');
+      App.Body.setGoal(v); changed.push('Goal weight set to ' + kg(v) + ' kg');
+      return 'Goal set.';
+    },
+  });
+  // A dish from Claude: name, why, calories as a range, protein, what to ask for.
+  function foodItem(x) {
+    if (!x || typeof x !== 'object') return null;
+    const s2 = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+    const int = (v) => { const n = Math.round(Number(v)); return isFinite(n) && n > 0 && n < 6000 ? n : null; };
+    const n = s2(x.name, 90); if (!n) return null;
+    const lo = int(x.kcal_low); const hi = int(x.kcal_high);
+    const out = { n };
+    const why = s2(x.why, 140); if (why) out.why = why;
+    if (lo || hi) out.kcal = [Math.min(lo || hi, hi || lo), Math.max(lo || hi, hi || lo)];
+    const p = int(x.protein_g); if (p && p < 400) out.protein = p;
+    const mods = (Array.isArray(x.ask_for) ? x.ask_for : []).map((m) => s2(m, 40)).filter(Boolean).slice(0, 3); if (mods.length) out.mods = mods;
+    return out;
+  }
 
   // ── The conversation ──────────────────────────────────────────────────────
   function history() {
@@ -492,7 +624,7 @@
   // Send the conversation to Claude and stream the answer into a coach bubble.
   // hooks: { start(), text(visibleSoFar), done({text, replies, card, error}) }
   async function reply(hooks) {
-    const model = settings().model; changed.length = 0; pendingCard = null; pendingReplies = null; let undoTaken = false;
+    const model = settings().model; changed.length = 0; pendingCard = null; pendingReplies = null; sourcesNow = []; let undoTaken = false;
     countMessage();
     let Anthropic = null; let full = ''; let error = null;
     try {
@@ -501,23 +633,30 @@
       const messages = history();
       messages.push({ role: 'system', content: nowLine() });
       hooks.start && hooks.start();
-      for (let step = 0; step < MAX_STEPS; step++) {
+      let tools = TOOLS.concat(webTools(4)); let paused = false; let webRetry = 0;
+      for (let step = 0; step < MAX_STEPS + 2; step++) {
         const stream = c.client.beta.messages.stream(Object.assign({
           model, max_tokens: 64000, thinking: { type: 'adaptive' }, output_config: { effort: 'medium' },
-          cache_control: { type: 'ephemeral' }, system, tools: TOOLS, messages,
+          cache_control: { type: 'ephemeral' }, system, tools, messages,
         }, fallback(model)));
-        // a short "let me check" before a tool call shows while the tool runs, then the answer replaces it
-        const before = full; let first = true;
-        stream.on('text', (delta) => { if (first) { full = step > 0 ? '' : full; first = false; } full += delta; hooks.text && hooks.text(visible(full)); });
+        // a short "let me check" before a tool call or a web search shows while it runs, then the
+        // answer replaces it; a paused turn carries straight on
+        const before = full; let fresh = step > 0 && !paused;
+        stream.on('streamEvent', (ev) => { if (ev.type === 'content_block_start' && ev.content_block && ev.content_block.type === 'server_tool_use') { fresh = true; if (ev.content_block.name === 'web_search' || ev.content_block.name === 'web_fetch') hooks.searching && hooks.searching(); } });
+        stream.on('text', (delta) => { if (fresh) { full = ''; fresh = false; } full += delta; hooks.text && hooks.text(visible(full)); });
         let msg;
         try { msg = await stream.finalMessage(); } catch (e) {
+          if (webOff(Anthropic, e) && webRetry++ < 3) { tools = TOOLS.concat(webTools(4)); full = before; step--; continue; }
           if (e instanceof Anthropic.APIError || step >= MAX_STEPS - 1) throw e;
           full = before; hooks.text && hooks.text(visible(full));
           continue; // tool input that didn't parse, or a dropped connection: ask again
         }
-        addUsage(model, msg.usage);
+        addUsage(model, msg.usage); addSources(msg.content, sourcesNow);
         // declined even after the fallback: drop the partial answer
         if (msg.stop_reason === 'refusal') { full = (before ? before + '\n\n' : '') + 'That’s not something I can help with. Ask me anything about your training or food.'; break; }
+        // a long search turn the server paused: send it back as it is and it carries on
+        paused = msg.stop_reason === 'pause_turn';
+        if (paused) { messages.push({ role: 'assistant', content: msg.content }); continue; }
         const uses = msg.content.filter((b) => b.type === 'tool_use');
         if (!uses.length || msg.stop_reason === 'end_turn') break;
         if (msg.stop_reason === 'max_tokens') break;
@@ -540,7 +679,7 @@
     }
     App.save();
     const out = splitReplies(full);
-    return { text: out.text, replies: pendingReplies || out.replies, card: pendingCard, error, changed: changed.slice(), undo: undoTaken && changed.length > 0 };
+    return { text: out.text, replies: pendingReplies || out.replies, card: pendingCard, error, changed: changed.slice(), undo: undoTaken && changed.length > 0, sources: sourcesNow.slice() };
   }
 
   // ── Menu photos ───────────────────────────────────────────────────────────
@@ -556,7 +695,7 @@
     type: 'object', additionalProperties: false, required: ['place', 'cuisine', 'picks', 'treats'],
     properties: {
       place: { type: 'string' }, cuisine: { type: 'string' },
-      picks: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'why', 'mods'], properties: { n: { type: 'string' }, why: { type: 'string' }, mods: { type: 'array', items: { type: 'string' } } } } },
+      picks: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'why', 'mods', 'kcal_low', 'kcal_high', 'protein_g'], properties: { n: { type: 'string' }, why: { type: 'string' }, mods: { type: 'array', items: { type: 'string' } }, kcal_low: { type: 'integer' }, kcal_high: { type: 'integer' }, protein_g: { type: 'integer' } } } },
       treats: { type: 'array', items: { type: 'string' } },
     },
   };
@@ -577,6 +716,125 @@
     try { return JSON.parse(tb ? tb.text : '{}'); } catch (e) { return { picks: [] }; }
   }
 
+  // ── Looking up a restaurant or dish, anywhere ────────────────────────────
+  // Claude searches the web for the place (or the dish), reads the menu, and hands back the
+  // three best orders for this member with calorie ranges, through one tool call.
+  const FOOD_RULES = [
+    'You help one member of Spotter, a training and eating app, order well when they eat out, anywhere in the world. They type a restaurant or a dish, and you know roughly where they are.',
+    '',
+    'Do this:',
+    '- Search the web to pin down exactly what it is. For a restaurant: find this specific place (the right branch in the right city), then its current menu: its own website, delivery apps (Uber Eats, Deliveroo, Thuisbezorg, Yemeksepeti, Getir and the like), menu photos and reviews. For a dish: what it is, how it is usually made and served there, and nutrition data for a typical portion.',
+    '- Abroad, search in the local language too, and use the local dish names.',
+    '- When a search finds the menu page, read it with web_fetch.',
+    '- From what this place actually serves, pick up to 3 best orders for them: lean protein, vegetables, lighter sauces, still satisfying and still what the place is good at. Then a few other good choices, and up to 3 to save for a treat. For a single dish, the first pick is that dish as usually served, then any lighter ways to have it.',
+    '- Estimate calories as a range for the portion served there, and rough grams of protein. Use published nutrition information when the place has it; otherwise estimate from ingredients, cooking method and portion size. Keep ranges honest: wider when unsure.',
+    '- Names exactly as on the menu; if the menu is not in English, add the English in brackets.',
+    '- Keep it efficient: usually 2 to 4 searches. Then call show_food_result once, with everything in it. If you cannot find this exact place, still give the best picks for that kind of food there and set found_menu to false.',
+    '- If what they typed is not food or a place to eat, reply with one short sentence instead of calling the tool.',
+    '',
+    'Style: Australian English, plain words, short lines. General healthy-eating guidance only: no calorie targets, no diets, no supplements.',
+  ].join('\n');
+  const FOOD_ITEM = { type: 'object', properties: PICK_PROPS, required: ['name', 'why', 'kcal_low', 'kcal_high', 'protein_g'] };
+  const SHOW_FOOD = {
+    name: 'show_food_result', eager_input_streaming: true,
+    description: 'Show the member what to order. Call once, at the end.',
+    input_schema: { type: 'object', properties: {
+      kind: { type: 'string', enum: ['restaurant', 'dish'] },
+      name: str('The restaurant or dish name as you found it'),
+      summary: str('One short line: what it is and where, e.g. "Kebab house in Kadikoy, known for its Iskender"'),
+      found_menu: { type: 'boolean', description: 'true if you found this place\'s actual menu (for a dish: reliable details of it)' },
+      cuisine: { type: 'string', enum: Object.keys(D.MENUS).concat(['other']), description: 'Closest cuisine, or other' },
+      picks: { type: 'array', description: '1 to 3 best orders, best first', items: FOOD_ITEM },
+      also_good: { type: 'array', description: '0 to 5 other good choices', items: { type: 'object', properties: { name: PICK_PROPS.name, kcal_low: PICK_PROPS.kcal_low, kcal_high: PICK_PROPS.kcal_high }, required: ['name'] } },
+      treats: { type: 'array', description: '0 to 3 dishes to save for a treat', items: { type: 'object', properties: { name: PICK_PROPS.name, kcal_low: PICK_PROPS.kcal_low, kcal_high: PICK_PROPS.kcal_high }, required: ['name'] } },
+      tip: str('Optional: one practical line, e.g. about portions, sides or drinks'),
+    }, required: ['kind', 'name', 'summary', 'found_menu', 'picks'] },
+  };
+  // What matters for ordering: goals, food they like, body weight, notes like allergies.
+  function foodBrief() {
+    const s = S(); const p = s.profile || {}; const L = [];
+    if (p.name) L.push('Name: ' + p.name.split(' ')[0]);
+    if (p.goals && p.goals.length) L.push('Goals: ' + p.goals.map((g) => (D.GOALS.find((x) => x.id === g) || {}).label).filter(Boolean).join(', '));
+    if (p.cuisines && p.cuisines.length) L.push('Food they like at home: ' + p.cuisines.map((c) => (D.CUISINES.find((x) => x.id === c) || {}).name).filter(Boolean).join(', '));
+    const b = App.Body && App.Body.summary();
+    if (b) L.push('Body weight: trend ' + kg(Math.round(b.trend * 10) / 10) + ' kg' + (b.rate != null ? ', ' + b.rateText.toLowerCase() : '') + (b.goal ? ', goal ' + kg(b.goal.kg) + ' kg' : '') + '.');
+    const w = App.E.week(); L.push('This week: ' + kg(w.eat) + ' of 5 good food days, ' + w.train + ' of ' + w.trainMax + ' sessions.');
+    const todays = s.plan ? App.E.slotsOn(today()) : []; if (todays.length) L.push('Training today: ' + App.E.sessionName(todays[0]) + (App.E.isDone(todays[0]) ? ' (done)' : '') + '.');
+    (s.coachNotes || []).forEach((n) => L.push('Coach note: ' + n.text));
+    return L.join('\n');
+  }
+  function normFood(i) {
+    if (!i || typeof i !== 'object') return null;
+    const s2 = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+    const picks = (Array.isArray(i.picks) ? i.picks : []).map(foodItem).filter(Boolean).slice(0, 3);
+    const name = s2(i.name, 80); if (!name || !picks.length) return null;
+    const list = (a, n, t) => (Array.isArray(a) ? a : []).map(foodItem).filter(Boolean).slice(0, n).map((x) => Object.assign(x, { t }));
+    return {
+      kind: i.kind === 'dish' ? 'dish' : 'restaurant', name, summary: s2(i.summary, 160), found: i.found_menu === true,
+      cuisine: D.MENUS[i.cuisine] ? i.cuisine : 'other', picks: picks.map((x) => Object.assign(x, { t: 'pick' })),
+      ok: list(i.also_good, 5, 'ok'), treats: list(i.treats, 3, 'treat'), tip: s2(i.tip, 160),
+    };
+  }
+  let lookupStream = null; let lookupCancelled = false;
+  function cancelLookup() { lookupCancelled = true; if (lookupStream) try { lookupStream.abort(); } catch (e) {} }
+  // hooks.progress({t: 'search', q} | {t: 'read', url}). Resolves to the result, or {text}, or {error}.
+  async function lookupFood(query, hooks) {
+    hooks = hooks || {}; lookupCancelled = false;
+    const model = settings().model; let Anthropic = null; const sources = [];
+    countMessage();
+    try {
+      const c = await getClient(); Anthropic = c.Anthropic;
+      const d = new Date(App.nowMs()); const h = d.getHours();
+      const system = [{ type: 'text', text: FOOD_RULES }, { type: 'text', text: '# The member\n\n' + foodBrief() }];
+      const messages = [{ role: 'user', content: 'Look up: ' + String(query).slice(0, 200) + '\nWhere I am: ' + whereLine() + '\nIt is ' + DOW_LONG[dow(today())] + ', ' + ((h % 12) || 12) + ':' + String(d.getMinutes()).padStart(2, '0') + (h < 12 ? ' am' : ' pm') + ' my time.' }];
+      let tools = webTools(5).concat([SHOW_FOOD]); let webRetry = 0; let fixes = 0;
+      if (tools.length === 1) messages[0].content += '\n(Web search is unavailable right now: answer from what you know and set found_menu to false.)';
+      for (let i = 0; i < 6; i++) {
+        if (lookupCancelled) return { error: 'cancelled' };
+        const stream = c.client.beta.messages.stream(Object.assign({
+          model, max_tokens: 16000, thinking: { type: 'adaptive' }, output_config: { effort: 'medium' }, system, tools, messages,
+        }, fallback(model)));
+        lookupStream = stream;
+        stream.on('contentBlock', (b) => {
+          if (!b || b.type !== 'server_tool_use' || !b.input) return;
+          if (b.name === 'web_search' && b.input.query) hooks.progress && hooks.progress({ t: 'search', q: String(b.input.query) });
+          if (b.name === 'web_fetch' && b.input.url) hooks.progress && hooks.progress({ t: 'read', url: String(b.input.url) });
+        });
+        let msg;
+        try { msg = await stream.finalMessage(); } catch (e) {
+          if (lookupCancelled) return { error: 'cancelled' };
+          if (webOff(Anthropic, e) && webRetry++ < 3) { const w = webTools(5); if (!w.length) return { error: 'noweb' }; tools = w.concat([SHOW_FOOD]); i--; continue; }
+          throw e;
+        }
+        lookupStream = null;
+        addUsage(model, msg.usage); addSources(msg.content, sources);
+        if (msg.stop_reason === 'refusal') return { text: 'That’s not something I can look up.' };
+        const use = msg.content.find((b) => b.type === 'tool_use' && b.name === 'show_food_result');
+        if (use) {
+          const r = msg.stop_reason === 'max_tokens' ? null : normFood(use.input);
+          if (r) { r.sources = sources; App.save(); return r; }
+          if (fixes++ >= 1) break;
+          messages.push({ role: 'assistant', content: msg.content });
+          messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'That was incomplete. Call show_food_result again with name, summary, found_menu and 1 to 3 picks, each with name, why, kcal_low, kcal_high and protein_g.' }] });
+          continue;
+        }
+        if (msg.stop_reason === 'pause_turn') { messages.push({ role: 'assistant', content: msg.content }); continue; }
+        // finished in words: the text after the last search
+        let k = -1; msg.content.forEach((b, j) => { if (b.type !== 'text' && b.type !== 'thinking') k = j; });
+        const text = msg.content.slice(k + 1).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+        App.save();
+        return { text: text || 'I couldn’t find that one. Try the full name and the area.', sources };
+      }
+      App.save();
+      return { text: 'I couldn’t pull that together. Try again, or add the area to the name.', sources };
+    } catch (e) {
+      lookupStream = null; App.save();
+      if (lookupCancelled) return { error: 'cancelled' };
+      if (window.console) console.warn('Food lookup', e);
+      return { error: errorText(Anthropic, e) };
+    }
+  }
+
   // Check a key works with one tiny request.
   async function test() {
     const c = await getClient();
@@ -589,5 +847,5 @@
 
   function notes() { return S().coachNotes || []; }
   function forgetNote(i) { const l = S().coachNotes || []; if (i >= 0 && i < l.length) { l.splice(i, 1); App.save(); } }
-  App.AI = { undo, notes, forgetNote, ready, getKey, setKey, settings, MODELS, modelName, monthUsage, reply, readMenu, test, snapshot, loadSDK };
+  App.AI = { undo, notes, forgetNote, ready, getKey, setKey, settings, MODELS, modelName, monthUsage, reply, readMenu, test, snapshot, loadSDK, lookupFood, cancelLookup, where, setWhere, whereLine, tz, tzCity, foodItem, SEARCH_USD };
 })();

@@ -10,17 +10,23 @@ and it opens full screen like a normal app.
 
 ## How it's laid out
 
-Four tabs, each with one job. Today only shows what matters right now; everything else is
+Five tabs, each with one job. Today only shows what matters right now; everything else is
 one tap away, behind a row that opens (a "dropdown") or a sheet that slides up.
 
 | Tab | What's there |
 |---|---|
 | **Today** | Your next session (start, preview, or move it), the coach's latest message with one-tap replies, this week as a barbell (a plate on the left for each session, on the right for each good food day), your goal countdown and the next reward. |
 | **Train** | This week's sessions, the whole plan a week per dropdown, progress (sessions, weeks on target, personal records, awards), the exercise library, your gym and its equipment, and a pack-your-bag list. |
-| **Eat** | A one-tap check-in for today, **Eating out** (type the restaurant and the menu comes up with three orders already picked), this week's five dinners from the food you eat, and short plans for big meals. |
+| **Eat** | A one-tap food check-in for any day (tap a day of the week, or step back a week, to log or change days you missed), **Eating out** (type a restaurant or a dish and your order comes up already picked; with Claude it's looked up on the web, anywhere in the world), this week's five dinners from the food you eat, and short plans for big meals. |
+| **Body** | Your weigh-ins, a chart with a trend line that smooths out daily swings (1M, 3M, 6M, 1Y or all; touch it to read any day), how fast you're gaining or losing each week and whether that suits your goal, an optional goal weight with when you'll get there, and every weigh-in to edit or delete. |
 | **Coach** | A message thread with your coach. It checks in first, every answer leads to a sensible follow-up, and replies can change the plan. The camera button sends a photo of a menu. |
 
-**Search** sits at the top of Today, Train and Eat. It finds sessions, all 171 exercises (by
+Today also reminds you about food: until today's food is logged (or yesterday's, in the
+morning), a one-tap card sits under your next session, and when you open the app with days
+from the last week still unlogged, a check-in asks about each one. Dismissed, it waits until
+there's a new day to ask about.
+
+**Search** sits at the top of Today, Train, Eat and Body. It finds sessions, all 171 exercises (by
 name, nickname, muscle or equipment), meals, restaurants, coach topics and settings.
 
 ### Onboarding that follows your answers
@@ -108,7 +114,10 @@ Out of the box the coach is a script: it checks in, and it understands a handful
   or adds a note shown during the session, adds or removes sessions, changes your training
   days and rotation, extends the plan, adds exercises the library doesn't have and updates
   your gym's equipment. It can also move, skip, ease or shorten one day, set next time's
-  weight and reps, log food and put a restaurant's picks on screen.
+  weight and reps, log food and weigh-ins, set a goal weight and put a restaurant's picks on
+  screen.
+- **It searches the web** when you ask about a specific restaurant, dish or place it doesn't
+  know, finds the real menu and shows sources under its answer.
 - **Every change shows** as a line in the chat, with an **Undo changes** button for the round.
 - **It remembers.** Injuries, physio advice, limits and preferences go into notes it keeps
   between chats (listed, and removable, in *Profile → Coach → Claude coach*).
@@ -128,10 +137,23 @@ others needs a small server to hold the key instead.
 
 Type a place on the Eat tab, in search or to the coach, and the menu comes up with three picks,
 why each one works and **what to ask for** (dressing on the side, grilled not fried, salad
-instead of chips). In the claude.ai preview you can **send a photo of the menu in the chat**
-(the camera button, or "Send a photo of the menu" when the coach asks where you're going).
-Claude picks the three best dishes for your goals from what that restaurant actually serves,
-with the requests to make when you order.
+instead of chips).
+
+**With Claude switched on, it works anywhere.** Type a restaurant (or a dish you don't know,
+like iskender, kumpir or bitterballen) and Claude searches the web for that exact place in
+the city you're in, reads its menu (its own site, delivery apps, menu photos and reviews,
+in the local language too) and picks your order: three best dishes with calorie ranges and
+protein, what to ask for, other good choices and what to save for a treat, with links to
+where it found them. You see each search as it happens; a look-up takes 20 to 40 seconds and
+costs roughly 5 to 15¢. Where you are comes from the phone's time zone, which changes when
+you travel (Istanbul, London, Amsterdam), or a city you type, or your location for a few
+hours if you share it. Places you've looked up stay under Recent, so opening one again is
+free, and *Search again* refreshes it.
+
+You can also **send a photo of the menu** (the camera button in the chat, or *Scan their
+menu* on the order). Claude picks the three best dishes from what that restaurant actually
+serves, translated if the menu isn't in English, with calorie estimates and the requests to
+make when you order.
 
 ### iPhone Duo, folded or unfolded
 
@@ -234,13 +256,14 @@ spotter/
   js/engine.js           Your gym's equipment, the plan builder, weight suggestions,
                          personal records, weekly goals, coach check-ins, search
   js/ai.js               The Claude coach: what it knows, its tools, streaming replies,
-                         menu photos, the key and what it costs
+                         web search, restaurant look-ups, menu photos, the key and cost
   js/coach.js            The coach's conversations, the actions replies can take, and
                          Claude in the preview (chat and menu photos)
   js/onboarding.js       Onboarding, the gym finder and map, the equipment check, the reveal
-  js/views.js            The four tabs, search and the sheets
+  js/views.js            The tabs, search and the sheets
+  js/body.js             Body weight: weigh-ins, the trend, the chart and the goal
   js/session.js          The guided gym session, supersets and record celebrations
-  js/import.js           Bringing history and a program over from Iron Log
+  js/import.js           Bringing history, a program and weigh-ins over from Iron Log
   js/app.js              Boot, migration, navigation, awards and actions
   vendor/                The Anthropic SDK (1.4.0) bundled for the browser, and its licence
   manifest.webmanifest   Home Screen app details

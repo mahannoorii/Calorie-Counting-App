@@ -1,4 +1,4 @@
-/* Spotter — screens. Four tabs (Today, Train, Eat, Coach), search, and the sheets that hold
+/* Spotter — screens. Five tabs (Today, Train, Eat, Body, Coach), search, and the sheets that hold
    the detail. Today shows only what matters now; everything else is one tap away. */
 (function () {
   'use strict';
@@ -47,10 +47,10 @@
   }
 
   // ── Shell ─────────────────────────────────────────────────────────────────
-  const TABS = [['today', 'Today', 'today'], ['train', 'Train', 'train'], ['eat', 'Eat', 'eat'], ['coach', 'Coach', 'coach']];
+  const TABS = [['today', 'Today', 'today'], ['train', 'Train', 'train'], ['eat', 'Eat', 'eat'], ['body', 'Body', 'scale'], ['coach', 'Coach', 'coach']];
   function shell() {
     const t = App.tab;
-    const body = t === 'train' ? trainView() : t === 'eat' ? eatView() : t === 'coach' ? coachView() : todayView();
+    const body = t === 'train' ? trainView() : t === 'eat' ? eatView() : t === 'body' ? App.Body.view() : t === 'coach' ? coachView() : todayView();
     return '<div class="scroller" data-scroller><div class="tabview' + (App.entering ? ' is-entering' : '') + '" data-tab="' + t + '">' + body + '</div></div>' +
       (t === 'coach' ? '<div class="dock"><div class="dock__inner">' + dockHtml('tab') + '</div></div>' : '') + tabbar();
   }
@@ -79,10 +79,11 @@
     const p = S().profile;
     let h = header('Today', fmtDate(today(), 'long')) + '<div class="page">';
     if (p.health.flag && !p.health.cleared) h += '<div class="callout">' + icon('shield') + '<div><b>Check in with your GP first.</b> You answered yes to a health question. Once they’ve given you the all-clear, you’re ready to start.<div><button class="btn btn--sm btn--tinted" data-act="healthCleared">I’ve been cleared</button></div></div></div>';
-    h += cols('<section class="sec">' + upNextCard() + '</section>' +
+    const nudge = foodNudge();
+    h += cols('<section class="sec">' + upNextCard() + '</section>' + (nudge ? '<section class="sec" data-food-slot>' + nudge + '</section>' : '') +
       '<section class="sec" data-coach-slot>' + coachCard() + '</section>',
       sec('This week', '<span class="sec__aside">Week ' + curWeekNo() + ' of ' + S().plan.weeks + '</span>', weekCard()) +
-      '<section class="sec">' + group([goalCell(), rewardCell(), installCell()], true) + '</section>');
+      '<section class="sec">' + group([goalCell(), bodyCell(), rewardCell(), installCell()], true) + '</section>');
     return h + '</div>';
   }
   function upNextCard() {
@@ -120,7 +121,7 @@
     const mine = ctx.filter((x) => x.from === 'me').slice(-1).map((x) => '<div style="display:flex;justify-content:flex-end;margin-top:10px"><span class="bubble bubble--me is-instant" style="font-size:15px;padding:7px 12px">' + esc(x.text) + '</span></div>').join('');
     const body = coachTyping
       ? (m ? '<p class="coachcard__text muted">' + esc(m.text) + '</p>' : '') + mine + '<div class="typing" aria-label="Coach is typing"><i></i><i></i><i></i></div>'
-      : mine + notes + '<p class="coachcard__text">' + esc(m.text) + '</p>' + cardInline(m) + placeBox(m) + repliesHtml(m);
+      : mine + notes + '<p class="coachcard__text">' + esc(m.text) + '</p>' + srcLine(m.sources, ' is-instant') + cardInline(m) + placeBox(m) + repliesHtml(m);
     return '<div class="card coachcard" data-coach-card>' +
       '<div class="coachcard__head">' + avatarCoach() + '<div class="coachcard__who"><span class="coachcard__name">Coach</span>' + (m ? '<span class="coachcard__time">' + esc(clock(m.at)) + '</span>' : '') + '</div>' +
         '<button class="btn btn--plain btn--sm" data-act="go" data-v="coach">Open chat</button></div>' + body + '</div>';
@@ -160,6 +161,12 @@
     const plan = S().plan; const ev = plan.event;
     const days = Math.max(0, diffDays(today(), ev ? ev.date : plan.end));
     return cell({ act: 'openGoal', tile: [ev ? 'plane' : 'flag', 'bg-blue'], title: esc(ev ? ev.name : 'Finish line'), sub: days + ' ' + App.plural(days, 'day') + ' to go · ' + esc(fmtDate(ev ? ev.date : plan.end, 'dm')) });
+  }
+  function bodyCell() {
+    const b = App.Body.summary();
+    if (!b) return cell({ act: 'go', v: 'body', tile: ['scale', 'bg-blue'], title: 'Body weight', sub: 'Log a weigh-in to start your trend' });
+    const sub = b.ago >= 7 ? 'Last weighed ' + b.ago + ' days ago' : b.rateText ? b.rateText : 'Weigh in again to see your trend';
+    return cell({ act: 'go', v: 'body', tile: ['scale', 'bg-blue'], title: 'Body weight', sub: esc(sub), value: App.fmtKg(Math.round(b.last.kg * 10) / 10) + ' kg' });
   }
   function rewardCell() {
     const r = E.partnerRewards().find((x) => !x.open); if (!r) return '';
@@ -251,23 +258,68 @@
       sec('Big meal coming up?', '', momentsList()));
     return h + '</div>';
   }
+  // How a day reads: "Today", "Yesterday", "Thursday 13 November".
+  function dayWord(d) { const t = today(); return d === t ? 'Today' : d === addDays(t, -1) ? 'Yesterday' : fmtDate(d, 'long'); }
+  function foodQuestion(d) { const t = today(); return d === t ? 'How’s eating going today?' : d === addDays(t, -1) ? 'How did you eat yesterday?' : 'How did you eat on ' + fmtDate(d, 'long') + '?'; }
+  function foodSeg(d, act) {
+    const f = S().food[d];
+    return '<div class="seg seg--lg" role="group" aria-label="Eating, ' + esc(dayWord(d)) + '">' + ['on', 'part', 'off'].map((v) => '<button class="seg__btn' + (f && f.s === v ? ' is-on' : '') + '" data-act="' + (act || 'foodLog') + '" data-v="' + d + '|' + v + '"' + (f && f.s === v ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' + FOOD_WORD[v] + '</button>').join('') + '</div>';
+  }
+  // Any day this week or before: tap a day to log or change it.
   function foodCard() {
-    const t = today(); const f = S().food[t]; const wk = weekStart(t);
-    const dots = [0, 1, 2, 3, 4, 5, 6].map((i) => { const d = addDays(wk, i); const x = S().food[d]; return '<div class="daydot' + (x ? ' is-' + x.s : '') + (d === t ? ' is-today' : '') + '"><i></i>' + DOW[i].charAt(0) + '</div>'; }).join('');
-    return '<div class="card foodcard"><div><div class="foodcard__title">' + (f ? 'Today: ' + FOOD_WORD[f.s].toLowerCase() : 'How’s eating going today?') + '</div><div class="muted" style="font-size:15px;margin-top:2px">' + (f ? 'Tap again to change it.' : 'One tap. Honest beats perfect.') + '</div></div>' +
-      '<div class="seg seg--lg" role="group" aria-label="Today’s eating">' + ['on', 'part', 'off'].map((v) => '<button class="seg__btn' + (f && f.s === v ? ' is-on' : '') + '" data-act="foodLog" data-v="' + v + '">' + FOOD_WORD[v] + '</button>').join('') + '</div>' +
-      '<div class="daydots" aria-hidden="true">' + dots + '</div></div>';
+    const t = today(); const sel = App.foodSel && App.foodSel <= t ? App.foodSel : t; const f = S().food[sel];
+    const wk = weekStart(sel); const thisWk = weekStart(t); const firstWk = weekStart(E.foodFirstDay() < t ? E.foodFirstDay() : addDays(t, -7));
+    const dots = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const d = addDays(wk, i); const x = S().food[d]; const future = d > t;
+      return '<button class="daydot' + (x ? ' is-' + x.s : '') + (d === t ? ' is-today' : '') + (d === sel ? ' is-sel' : '') + '" data-act="foodDay" data-v="' + d + '"' + (future ? ' disabled' : '') + ' aria-label="' + esc(fmtDate(d, 'long') + (x ? ', ' + FOOD_WORD[x.s].toLowerCase() : future ? '' : ', not logged')) + '"' + (d === sel ? ' aria-current="date"' : '') + '><i></i>' + DOW[i].charAt(0) + '<span class="daydot__n">' + App.parse(d).getDate() + '</span></button>';
+    }).join('');
+    const wkLabel = wk === thisWk ? 'This week' : wk === addDays(thisWk, -7) ? 'Last week' : fmtDate(wk, 'dm') + ' – ' + fmtDate(addDays(wk, 6), 'dm');
+    const missing = [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(wk, i)).filter((d) => d < t && d >= E.foodFirstDay() && !S().food[d] && d !== sel).length;
+    return '<div class="card foodcard"><div><div class="foodcard__title">' + esc(f ? dayWord(sel) + ': ' + FOOD_WORD[f.s].toLowerCase() : foodQuestion(sel)) + '</div><div class="muted" style="font-size:15px;margin-top:2px">' + (f ? 'Tap again to change it' + (sel !== t ? ', or <button class="linkbtn" data-act="foodClear" data-v="' + sel + '">clear it</button>' : '') + '.' : 'One tap. Honest beats perfect.') + '</div></div>' +
+      foodSeg(sel) +
+      '<div class="weeknav"><button class="weeknav__btn" data-act="foodWeek" data-v="-1" aria-label="Previous week"' + (wk <= firstWk ? ' disabled' : '') + '>' + icon('left') + '</button><span class="weeknav__label">' + esc(wkLabel) + (missing ? ' · ' + missing + ' to fill in' : '') + '</span><button class="weeknav__btn" data-act="foodWeek" data-v="1" aria-label="Next week"' + (wk >= thisWk ? ' disabled' : '') + '>' + icon('right') + '</button></div>' +
+      '<div class="daydots" role="group" aria-label="' + esc(wkLabel) + '">' + dots + '</div>' +
+      '<p class="fn" style="margin:0">Tap a day to log it or change it, even days you missed.</p></div>';
+  }
+  // Today: a nudge until today's food is in, and any days you missed in the last week.
+  function foodNudge() {
+    const s = S(); const t = today(); const y = addDays(t, -1);
+    const m = App.Coach.latest(); const coachAsking = m && (m.replies || []).some((r) => r.act === 'food');
+    const gaps = E.foodGaps(false);
+    let day = null;
+    if (!s.food[t] && !coachAsking && (App.hour() >= 15 || !gaps.includes(y))) day = t;
+    else if (gaps.includes(y)) day = y;
+    const rest = gaps.filter((d) => d !== day);
+    if (!day && !rest.length) {
+      const f = s.food[t];
+      return f ? group([cell({ act: 'go', v: 'eat', tile: ['leaf', 'bg-green'], title: 'Food today', value: FOOD_WORD[f.s] })], true) : '';
+    }
+    const restText = rest.length ? listJoin(rest.map((d) => (d === y ? 'yesterday' : DOW_LONG[App.dow(d)]))) : '';
+    return '<div class="card foodnudge">' +
+      '<div class="foodnudge__head"><span class="cell__tile bg-green">' + icon('leaf') + '</span><div><div class="foodcard__title">' + esc(day ? foodQuestion(day) : 'A few days to fill in') + '</div>' +
+        '<div class="muted" style="font-size:15px;margin-top:1px">' + esc(day ? (day === t ? 'Not logged yet today' : 'Not logged yet') + (rest.length ? ' · ' + rest.length + ' more ' + App.plural(rest.length, 'day') : '') : App.cap(restText) + ' aren’t logged') + '</div></div></div>' +
+      (day ? foodSeg(day) : '') +
+      (rest.length ? '<button class="btn btn--tinted btn--sm foodnudge__more" data-act="foodAsk">' + (day ? 'Fill in ' + esc(restText) : 'Fill them in') + '</button>' : '') + '</div>';
+  }
+  // The check-in when you open the app: every day from the last week you haven't logged.
+  function foodAskSheet(days) {
+    const rows = days.map((d) => '<div class="foodask__row" data-foodrow="' + d + '"><div class="foodask__day">' + esc(dayWord(d)) + (d !== today() && d !== addDays(today(), -1) ? '' : '<span class="muted"> · ' + esc(fmtDate(d, 'dm')) + '</span>') + '</div>' + foodSeg(d, 'foodAskLog') + '</div>').join('');
+    App.sheet('Food check-in', '<div class="sheet__lead"><h1 class="sheet__h1">How did you eat?</h1><p class="lead">' + (days.length > 1 ? 'These days aren’t logged yet.' : 'This day isn’t logged yet.') + ' One tap each. Honest beats perfect.</p></div><div class="foodask">' + rows + '</div>', { doneLabel: 'Later' });
   }
   function eatOutBox() {
-    return '<div class="eatout"><div class="eatout__wrap">' + icon('search') + '<label class="vh" for="eatOutIn">Restaurant name</label><input id="eatOutIn" class="input" placeholder="Where are you eating?" autocomplete="off" autocapitalize="words" enterkeyhint="go" data-enter="eatOutGo"></div>' +
+    const keyed = App.AI.ready(); const w = keyed ? App.AI.where() : null;
+    return '<div class="eatout"><div class="eatout__wrap">' + icon('search') + '<label class="vh" for="eatOutIn">' + (keyed ? 'Restaurant or dish' : 'Restaurant name') + '</label><input id="eatOutIn" class="input" placeholder="' + (keyed ? 'Restaurant or dish, anywhere' : 'Where are you eating?') + '" autocomplete="off" autocapitalize="words" enterkeyhint="go" data-enter="eatOutGo"></div>' +
       '<button class="btn btn--accent btn--icon" data-act="eatOutGo" aria-label="Get my order">' + icon('arrow') + '</button></div>' +
-      '<p class="fn">Type the place. I’ll put the menu in front of you with your order already picked.</p>';
+      (keyed ? '<button class="eatwhere" data-act="eatWhere">' + icon('pin', 'ic-sm') + '<span>' + esc(w.kind === 'gps' ? 'Near you' : w.label ? 'In ' + w.label : 'Set where you are') + '</span><span class="eatwhere__change">Change</span></button>' +
+        '<p class="fn">Type a restaurant or a dish, in any country. Claude searches the web for the real menu and picks your order, with calories.</p>'
+        : '<p class="fn">Type the place. I’ll put the menu in front of you with your order already picked.' + (window.claude ? '' : ' <button class="linkbtn" data-act="openCoachAI">Switch on Claude</button> to look up any restaurant or dish in the world.') + '</p>');
   }
   function lockedToday(name) { return S().events.some((e) => e.type === 'eatout' && e.date === today() && e.title.toLowerCase() === String(name).toLowerCase()); }
   function placesList() {
     const pl = S().places.slice(0, 4);
     if (!pl.length) return '';
-    return '<div class="sec__label">Recent</div>' + group(pl.map((x) => cell({ act: 'openMenu', v: x.name + '|' + x.cuisine, tile: ['pin', 'bg-red'], title: esc(x.name), sub: esc(cuisineName(x.cuisine)) + (lockedToday(x.name) ? ' · locked in today' : '') })), true);
+    const sub = (x) => { const m = x.menu; const web = m && (m.src === 'web' || m.src === 'coach'); return web ? [m.where, m.kind === 'dish' ? 'dish' : 'looked up'].filter(Boolean).join(' · ') : cuisineName(x.cuisine); };
+    return '<div class="sec__label">Recent</div>' + group(pl.map((x) => cell({ act: 'openMenu', v: x.name + '|' + x.cuisine, tile: [x.menu && x.menu.kind === 'dish' ? 'fork' : 'pin', 'bg-red'], title: esc((x.menu && x.menu.title) || x.name), sub: esc(App.cap(sub(x))) + (lockedToday(x.name) ? ' · locked in today' : '') })), true);
   }
   function dinnersList() {
     const t = today();
@@ -300,10 +352,26 @@
       if (m.from === 'note') h += '<div class="note' + inst + '">' + icon('check') + esc(m.text) + '</div>';
       else if (m.from === 'me' && m.img) h += '<div class="bubble bubble--me bubble--img' + inst + '"><img src="' + m.img + '" alt="' + esc(m.text || 'Photo') + '"></div>';
       else if (m.from === 'me') h += '<div class="bubble bubble--me' + inst + '">' + esc(m.text) + '</div>';
-      else { h += '<div class="bubble bubble--coach' + (m.urgent ? ' bubble--urgent' : '') + (m.live ? ' is-live' : '') + inst + '" data-mid="' + esc(m.id) + '">' + esc(m.text) + '</div>'; if (m.card) h += msgCard(m.card, inst); }
+      else { h += '<div class="bubble bubble--coach' + (m.urgent ? ' bubble--urgent' : '') + (m.live ? ' is-live' : '') + inst + '" data-mid="' + esc(m.id) + '">' + esc(m.text) + '</div>' + srcLine(m.sources, inst); if (m.card) h += msgCard(m.card, inst); }
     });
     if (coachTyping) h += '<div class="typing" aria-label="Coach is typing"><i></i><i></i><i></i></div>';
     return h;
+  }
+  // Where a web answer came from, as links.
+  function host(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
+  function srcLine(list, inst) {
+    if (!list || !list.length) return '';
+    const seen = new Set(); const links = list.filter((x) => { const h = host(x.url); if (!h || seen.has(h)) return false; seen.add(h); return true; }).slice(0, 4);
+    return '<div class="srcline' + (inst || '') + '">Sources: ' + links.map((x) => '<a href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' + esc(host(x.url)) + '</a>').join(', ') + '</div>';
+  }
+  function sourcesGroup(list) {
+    if (!list || !list.length) return '';
+    return '<div class="sec__label">Sources</div><div class="group">' + list.slice(0, 6).map((x) => '<a class="cell" href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer"><span class="cell__main"><span class="cell__title" style="font-size:15px">' + esc(x.title || host(x.url)) + '</span><span class="cell__sub">' + esc(host(x.url)) + '</span></span>' + icon('right', 'cell__chev') + '</a>').join('') + '</div>';
+  }
+  // "520–650 kcal · ~45 g protein"
+  function kcalText(it) {
+    const k = it && it.kcal; const p = it && it.protein;
+    return (k ? (k[0] === k[1] ? k[0] : k[0] + '–' + k[1]) + ' kcal' : '') + (k && p ? ' · ' : '') + (p ? '~' + p + ' g protein' : '');
   }
   function msgCard(c, inst) {
     if (c.type === 'session') {
@@ -316,8 +384,10 @@
       const scanned = placeMenu(c.place);
       const M = D.MENUS[c.cuisine] || (scanned ? { name: '', items: [] } : null); if (!M) return '';
       const picks = scanned ? scanned.picks : M.items.filter((it) => it.t === 'pick').slice(0, 3);
-      return '<div class="msgcard' + inst + '"><div><div class="msgcard__eyebrow">' + esc(M.name ? M.name + (scanned ? ' · from their menu' : ' · your order') : 'From their menu') + '</div><div class="msgcard__title">' + esc(c.place || M.name) + '</div></div>' +
-        '<ul class="msgcard__list">' + picks.map((it, i) => '<li><span class="n">' + (i + 1) + '</span>' + esc(it.n) + '</li>').join('') + '</ul>' +
+      const looked = scanned && (scanned.src === 'web' || scanned.src === 'coach');
+      const eyebrow = looked ? 'Looked up' + (scanned.where ? ' · ' + scanned.where : '') : M.name ? M.name + (scanned ? ' · from their menu' : ' · your order') : 'From their menu';
+      return '<div class="msgcard' + inst + '"><div><div class="msgcard__eyebrow">' + esc(eyebrow) + '</div><div class="msgcard__title">' + esc((scanned && scanned.title) || c.place || M.name) + '</div></div>' +
+        '<ul class="msgcard__list">' + picks.map((it, i) => '<li><span class="n">' + (i + 1) + '</span><span>' + esc(it.n) + (it.kcal ? '<small class="msgcard__kcal">' + esc(kcalText(it)) + '</small>' : '') + '</span></li>').join('') + '</ul>' +
         (picks[0] && (modsList(picks[0]).length || picks[0].tip) ? '<div class="msgcard__ask">' + icon('sparkle', 'ic-sm') + '<span>' + esc(modsList(picks[0]).length ? 'Ask for: ' + modsList(picks[0]).slice(0, 2).join(', ').toLowerCase() : picks[0].tip) + '</span></div>' : '') +
         btn('Full menu', 'openMenu', c.place + '|' + c.cuisine, 'btn--sm btn--tinted') + '</div>';
     }
@@ -378,7 +448,7 @@
   }
 
   // ── Search ────────────────────────────────────────────────────────────────
-  const TYPE_BG = { Training: 'bg-accent', Exercises: 'bg-blue', Food: 'bg-green', Restaurants: 'bg-red', 'Ask your coach': 'bg-purple', You: 'bg-ink' };
+  const TYPE_BG = { Training: 'bg-accent', Exercises: 'bg-blue', Food: 'bg-green', Body: 'bg-blue', Restaurants: 'bg-red', 'Ask your coach': 'bg-purple', You: 'bg-ink' };
   let searchEl = null;
   function openSearch() {
     if (searchEl) return;
@@ -631,19 +701,28 @@
   function menuSheet(name, cu, replace) {
     const scanned = placeMenu(name);
     const M = D.MENUS[cu] || (scanned ? { name: '', items: [] } : null); if (!M) return;
-    const place = name || M.name + ' restaurant';
+    const looked = scanned && (scanned.src === 'web' || scanned.src === 'coach');
+    const key = name || M.name + ' restaurant'; const place = (scanned && scanned.title) || key;
     const picks = scanned ? scanned.picks : M.items.filter((i) => i.t === 'pick').slice(0, 3);
-    const ok = scanned ? [] : M.items.filter((i) => i.t === 'ok'); const treat = scanned ? scanned.treats || [] : M.items.filter((i) => i.t === 'treat');
-    const rows = (items, tag) => items.map((it) => '<div class="menurow"><span class="menurow__name">' + esc(it.n) + (it.tip ? '<span class="menurow__tip">' + esc(it.tip) + '</span>' : '') + '</span>' + (tag ? '<span class="tag ' + tag[0] + '">' + tag[1] + '</span>' : '') + '</div>').join('');
-    const locked = lockedToday(place);
-    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(M.name ? M.name + ' · your order' : 'Your order') + (locked ? ' · <span class="t-green">locked in</span>' : '') + '</div><h1 class="sheet__h1">' + esc(place) + '</h1></div>' +
-      '<div class="group"><ol class="picks">' + picks.map((it, i) => '<li class="pick"><span class="pick__n">' + (i + 1) + '</span><div><div class="pick__name">' + esc(it.n) + '</div>' + (it.why ? '<div class="pick__why">' + esc(it.why) + '</div>' : '') + (it.tip ? '<div class="pick__tip">' + icon('sparkle') + '<span>' + esc(it.tip) + '</span></div>' : '') + modsHtml(it) + '</div></li>').join('') + '</ol></div>' +
-      (scanned ? '<p class="fn">Scanned from their menu ' + esc(App.relLow(App.iso(new Date(scanned.at)))) + '. Any one of these is a great order.</p>' : '<p class="fn">Any one of these is a great order. I picked them from a typical ' + esc(['pub', 'burgers', 'pizza', 'chicken', 'cafe', 'ramen'].includes(cu) ? M.name.toLowerCase() : M.name) + ' menu, so if one isn’t on theirs, go for the closest thing.</p>') +
+    const ok = scanned ? scanned.ok || [] : M.items.filter((i) => i.t === 'ok'); const treat = scanned ? scanned.treats || [] : M.items.filter((i) => i.t === 'treat');
+    const rows = (items, tag) => items.map((it) => '<div class="menurow"><span class="menurow__name">' + esc(it.n) + (it.tip ? '<span class="menurow__tip">' + esc(it.tip) + '</span>' : '') + (it.kcal ? '<span class="menurow__tip">' + esc(kcalText(it)) + '</span>' : '') + '</span>' + (tag ? '<span class="tag ' + tag[0] + '">' + tag[1] + '</span>' : '') + '</div>').join('');
+    const locked = lockedToday(key);
+    const eyebrow = looked ? (scanned.kind === 'dish' ? 'Dish' : 'Your order') + (scanned.where ? ' · ' + scanned.where : '') : M.name ? M.name + ' · your order' : 'Your order';
+    const when = scanned ? esc(App.relLow(App.iso(new Date(scanned.at)))) : '';
+    const note = looked ? (scanned.found === false ? 'I couldn’t find their exact menu, so these are the best orders at a place like this. ' : scanned.src === 'web' ? 'Picked from their menu online, ' + when + '. ' : '') + 'Calories are estimates for the portion they serve.'
+      : scanned ? 'Scanned from their menu ' + when + '. Any one of these is a great order.' + (picks.some((x) => x.kcal) ? ' Calories are estimates.' : '')
+      : 'Any one of these is a great order. I picked them from a typical ' + esc(['pub', 'burgers', 'pizza', 'chicken', 'cafe', 'ramen'].includes(cu) ? M.name.toLowerCase() : M.name) + ' menu, so if one isn’t on theirs, go for the closest thing.';
+    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(eyebrow) + (locked ? ' · <span class="t-green">locked in</span>' : '') + '</div><h1 class="sheet__h1">' + esc(place) + '</h1>' + (looked && scanned.summary ? '<p class="lead">' + esc(scanned.summary) + '</p>' : '') + '</div>' +
+      '<div class="group"><ol class="picks">' + picks.map((it, i) => '<li class="pick"><span class="pick__n">' + (i + 1) + '</span><div><div class="pick__name">' + esc(it.n) + '</div>' + (it.kcal || it.protein ? '<div class="pick__nums">' + esc(kcalText(it)) + '</div>' : '') + (it.why ? '<div class="pick__why">' + esc(it.why) + '</div>' : '') + (it.tip ? '<div class="pick__tip">' + icon('sparkle') + '<span>' + esc(it.tip) + '</span></div>' : '') + modsHtml(it) + '</div></li>').join('') + '</ol></div>' +
+      (looked && scanned.tip ? '<div class="callout callout--blue">' + icon('info') + '<div>' + esc(scanned.tip) + '</div></div>' : '') +
+      '<p class="fn">' + note + '</p>' +
       '<div data-scan-slot></div>' +
       '<div class="group">' +
         (ok.length ? disc('menu-ok', cell({ act: 'toggleDisc', v: 'menu-ok', title: 'Also a good choice', value: String(ok.length) }), rows(ok, ['tag--ok', 'Good'])) : '') +
         (treat.length ? disc('menu-treat', cell({ act: 'toggleDisc', v: 'menu-treat', title: 'Save for a treat', value: String(treat.length) }), rows(treat, ['tag--treat', 'Treat'])) : '') +
-      '</div>';
+      '</div>' +
+      (looked ? sourcesGroup(scanned.sources) : '') +
+      (name && App.AI.ready() ? '<div class="group group--tiles" style="margin-top:14px">' + cell({ act: 'eatLookup', v: name + '|1', tile: ['refresh', 'bg-blue'], title: looked ? 'Search again' : 'Look up their real menu', sub: 'Claude searches the web' + (App.AI.where().label ? ' near ' + esc(App.AI.where().kind === 'gps' ? 'you' : App.AI.where().label) : '') }) + '</div>' : '');
     const foot = locked ? '<button class="btn btn--block btn--tinted" disabled>' + icon('check') + 'Locked in</button>' : btn('Lock it in', 'lockMenu', (name || '') + '|' + cu, 'btn--block btn--accent') + '<p class="fn" style="text-align:center">I’ll check in tonight to see how it went.</p>';
     const L = replace && App.topLayer() && App.topLayer().querySelector('[data-scan-slot]') ? (App.replaceSheet(body, foot), App.topLayer()) : App.sheet('Your order', body, { foot });
     // In the claude.ai preview Claude can read a photo of the real menu.
@@ -659,6 +738,36 @@
   function menuScanning(on) {
     const slot = App.$('[data-scan-slot]', App.topLayer() || document); if (!slot) return;
     if (on) slot.innerHTML = '<div class="callout callout--blue"><span class="spinner" aria-hidden="true"></span><div><b>Reading the menu…</b> Picking the three best orders.</div></div>';
+  }
+  // Claude looking a place up: what it searched and read, live.
+  function lookupSheet(name, id) {
+    const w = App.AI.where();
+    const body = '<div data-scan-slot hidden></div><div data-lookup="' + id + '"></div><div class="sheet__lead"><div class="eyebrow">Looking it up' + (w.label ? ' · ' + esc(w.kind === 'gps' ? 'near you' : w.label) : '') + '</div><h1 class="sheet__h1">' + esc(name) + '</h1></div>' +
+      '<div class="lookup"><div class="lookup__now"><span class="spinner" aria-hidden="true"></span><span data-lookup-now>Searching the web…</span></div><ul class="lookup__steps" data-lookup-steps aria-live="polite"></ul></div>' +
+      '<p class="fn">Claude finds the place and its menu, then picks your order. Usually 20 to 40 seconds. You can close this, and your picks will be under Recent.</p>';
+    App.sheet('Your order', body, { foot: btn('Stop', 'eatLookupCancel', null, 'btn--block btn--tinted') });
+  }
+  function lookupOpen(id) { const L = App.topLayer(); return !!(L && L.querySelector('[data-lookup="' + id + '"]')); }
+  function lookupProgress(id, p) {
+    if (!lookupOpen(id)) return; const L = App.topLayer();
+    const ul = L.querySelector('[data-lookup-steps]'); const now = L.querySelector('[data-lookup-now]');
+    const line = p.t === 'search' ? 'Searched “' + p.q + '”' : 'Read ' + (host(p.url) || 'a page');
+    if (ul) ul.insertAdjacentHTML('beforeend', '<li>' + icon('check', 'ic-sm') + '<span>' + esc(line) + '</span></li>');
+    if (now) now.textContent = p.t === 'search' ? 'Reading what it found…' : 'Picking your order…';
+  }
+  function lookupMessage(id, name, text, bad) {
+    if (!lookupOpen(id)) { App.toast(text, bad ? 'alert' : 'info'); return; }
+    App.replaceSheet('<div data-scan-slot hidden></div><div class="sheet__lead"><h1 class="sheet__h1">' + esc(name) + '</h1></div><div class="callout' + (bad ? '' : ' callout--blue') + '">' + icon(bad ? 'alert' : 'info') + '<div>' + esc(text) + '</div></div>',
+      btn('Try again', 'eatLookup', name + '|1', 'btn--block btn--accent') + btn('Use a typical menu instead', 'eatTypical', name, 'btn--block btn--plain'));
+  }
+  // Where to search: a city they type, their location for a few hours, or the time zone.
+  function whereSheet() {
+    const w = App.AI.where(); const tzc = App.AI.tzCity(App.AI.tz());
+    const body = '<div class="sheet__lead"><h1 class="sheet__h1">Where are you eating?</h1><p class="lead">So Claude searches the right city' + (tzc ? '. Your phone’s time zone says ' + esc(tzc) : '') + '.</p></div>' +
+      '<label class="vh" for="whereIn">City or area</label><input id="whereIn" class="input" placeholder="City or area, like Kadıköy, Istanbul" autocomplete="off" autocapitalize="words" enterkeyhint="done" value="' + esc(w.kind === 'city' ? w.city : '') + '" data-enter="whereSave">' +
+      '<div class="group group--tiles" style="margin-top:14px">' + cell({ act: 'whereGps', tile: ['pin', 'bg-blue'], title: 'Use where I am now', sub: 'Shares your phone’s location for the next few hours', value: w.kind === 'gps' ? 'On' : '' }) +
+        (tzc ? cell({ act: 'whereReset', tile: ['clock', 'bg-ink'], title: 'Go by my time zone', sub: esc(tzc) + ' · changes when you travel', value: w.kind === 'tz' ? 'On' : '' }) : '') + '</div>';
+    App.sheet('Location', body, { foot: btn('Save', 'whereSave', null, 'btn--block btn--accent') });
   }
   function cuisinePickSheet(name) {
     const opts = ['italian', 'pizza', 'japanese', 'ramen', 'thai', 'chinese', 'vietnamese', 'korean', 'indian', 'middleeast', 'greek', 'mexican', 'pub', 'burgers', 'chicken', 'cafe'];
@@ -730,7 +839,7 @@
     const on = App.AI.ready(); const st = App.AI.settings(); const k = App.AI.getKey(); const u = App.AI.monthUsage();
     const models = Object.keys(App.AI.MODELS).map((id) => '<button class="seg__btn' + (st.model === id ? ' is-on' : '') + '" data-act="aiModel" data-v="' + id + '">' + esc(App.AI.MODELS[id].name.replace('Claude ', '')) + '</button>').join('');
     let h = '<div class="sheet__lead"><h1 class="sheet__h1">' + (on ? 'Your coach runs on Claude' : 'Make your coach smart') + '</h1><p class="lead">' +
-      (on ? 'It reads your whole training history, answers like a trainer who knows you, reads menu photos, and changes your plan when you ask.' : 'Right now the coach is a script: it only understands a few phrases. With Claude it reads your whole history, answers anything, reads menu photos and can change your plan when you ask.') + '</p></div>';
+      (on ? 'It reads your whole training history, answers like a trainer who knows you, reads menu photos, looks up any restaurant or dish on the web, and changes your plan when you ask.' : 'Right now the coach is a script: it only understands a few phrases. With Claude it reads your whole history, answers anything, reads menu photos and can change your plan when you ask.') + '</p></div>';
     if (!on) {
       h += '<div class="sec"><div class="sec__label">Get a key (5 minutes, once)</div><div class="card"><ol class="steps">' +
         '<li>On this phone, open console.anthropic.com and sign up or sign in</li>' +
@@ -744,7 +853,7 @@
         cell({ tile: ['check', 'bg-green'], title: 'Connected', sub: 'Key ending ' + esc(k.slice(-4)) }),
         cell({ tile: ['history', 'bg-ink'], title: 'This month', sub: u.msgs + ' ' + App.plural(u.msgs, 'message') + ' · about US$' + u.usd.toFixed(2) }),
       ], true) +
-        '<div class="sec"><div class="sec__label">Model</div><div class="seg">' + models + '</div><p class="fn">' + esc(App.AI.MODELS[st.model].note) + '</p></div>' +
+        '<div class="sec"><div class="sec__label">Model</div><div class="seg">' + models + '</div><p class="fn">' + esc(App.AI.MODELS[st.model].note) + ' Looking up a restaurant on the web usually costs 5 to 15¢ (each search is 1¢, plus reading the pages).</p></div>' +
         '<div class="sec"><div class="sec__label">What your coach remembers</div>' + (App.AI.notes().length ? '<div class="group">' + App.AI.notes().map((n, i) => '<div class="cell"><span class="cell__main"><span class="cell__title" style="white-space:normal">' + esc(n.text) + '</span><span class="cell__sub">' + esc(fmtDate(App.iso(new Date(n.at)), 'dm')) + '</span></span><button class="icon-btn" data-act="aiNoteDel" data-v="' + i + '" aria-label="Forget this">' + icon('x') + '</button></div>').join('') + '</div>' : '<p class="fn">Nothing yet. Tell the coach about injuries, a physio’s advice or what you like, and it keeps a note for every chat after.</p>') + '</div>' +
         '<div class="inrow" style="flex-wrap:wrap"><button class="btn btn--sm btn--tinted" data-act="aiTest">Test it</button><button class="btn btn--sm btn--danger" data-act="aiForgetKey">Remove key</button></div>';
     }
@@ -799,9 +908,10 @@
     aiForgetKey() { App.AI.setKey(''); App.replaceSheet(coachAIBody()); App.render(); App.toast('Key removed from this phone'); },
   });
   App.Views = {
+    ui: { cell, group, sec, header, cols, btn, disc, tile },
     shell, coachGlyph, discHtml, refreshCoach, refreshCam, setTyping, updateBubble, refreshBadge, animateBars,
     previewSheet, sessionOptions, menuScanning, placeMenu, weekSheet, goalSheet, rewardsSheet, progressSheet, awardsSheet, awardInfo,
     librarySheet, renderLib, lib, exerciseSheet, swapInSheet, gymSheet, kitSheet, packSheet, menuSheet, cuisinePickSheet, dinnersSheet, mealSheet, momentSheet,
-    profileSheet, installSheet, coachSheet, celebrate, openSearch, closeSearch, renderSearch, isSearchOpen: () => !!searchEl,
+    profileSheet, installSheet, coachSheet, celebrate, foodAskSheet, dayWord, lookupSheet, lookupOpen, lookupProgress, lookupMessage, whereSheet, kcalText, openSearch, closeSearch, renderSearch, isSearchOpen: () => !!searchEl,
   };
 })();
