@@ -14,7 +14,7 @@
       hip_thrust_machine: 'Hip thrust machine', glute_machine: 'Glute kickback machine', hip_abduction: 'Hip abduction', hip_adduction: 'Hip adduction', calf_raise_machine: 'Calf raise machine',
       chest_press_machine: 'Chest press', incline_chest_press_machine: 'Incline chest press', plate_loaded_chest: 'Plate-loaded chest press', pec_deck: 'Pec deck / rear delt',
       shoulder_press_machine: 'Shoulder press', lateral_raise_machine: 'Lateral raise machine', lat_pulldown: 'Lat pulldown', plate_loaded_pulldown: 'Plate-loaded pulldown', assisted_pullup: 'Assisted pull-up / dip',
-      seated_row_machine: 'Seated cable row', machine_row: 'Chest-supported row', plate_loaded_row: 'Plate-loaded row', t_bar_row: 'T-bar row',
+      machine_row: 'Seated row machine', plate_loaded_row: 'Plate-loaded row', t_bar_row: 'T-bar row',
       bicep_curl_machine: 'Biceps curl machine', tricep_machine: 'Triceps machine', ab_crunch_machine: 'Ab crunch machine', back_extension: 'Back extension bench',
     } },
     cables: { name: 'Cables', items: { cable_station: 'Adjustable cable station', cable_crossover: 'Cable crossover' } },
@@ -88,7 +88,7 @@
     feel: 'Thighs and glutes.', avoid: ['Heels lifting'] });
 
   // ── Legs: hinge pattern ───────────────────────────────────────────────────
-  X('romanian_deadlift', 'Romanian deadlift', { eq: ['barbell'], kind: 'barbell', pat: 'hinge', lvl: 2, art: 'barbell', muscles: ['hams', 'glutes'], muscles2: ['lower_back', 'forearms'], focus: 'Back of thighs and glutes', step: 2.5, start: 20, rest: 120, reps: [8, 10], aka: ['RDL', 'stiff leg deadlift'],
+  X('romanian_deadlift', 'Barbell Romanian deadlift', { eq: ['barbell'], kind: 'barbell', pat: 'hinge', lvl: 2, art: 'barbell', muscles: ['hams', 'glutes'], muscles2: ['lower_back', 'forearms'], focus: 'Back of thighs and glutes', step: 2.5, start: 20, rest: 120, reps: [8, 10], aka: ['Romanian deadlift', 'RDL', 'stiff leg deadlift'],
     setup: ['Hold the bar at your hips, hands just outside your legs.', 'Soft knees, feet hip-width.'],
     move: ['Push your hips back and slide the bar down your thighs.', 'Stop when you feel a strong stretch, usually just below your knees.', 'Squeeze your glutes to stand back up.'],
     feel: 'A big stretch in the back of your thighs.', avoid: ['Rounding your back', 'Bending your knees into a squat'] });
@@ -216,11 +216,11 @@
     setup: ['Band just above your knees, half squat.'],
     move: ['Step sideways, keeping tension on the band.'],
     feel: 'The side of your hips.', avoid: ['Feet snapping together'] });
-  X('calf_raise_machine', 'Standing calf raise', { eq: ['calf_raise_machine'], kind: 'machine', pat: 'calf', art: 'calf', muscles: ['calves'], focus: 'Calves', step: 5, start: 20, rest: 45, reps: [12, 15],
+  X('calf_raise_machine', 'Standing calf raise machine', { aka: ['standing calf raise', 'calf raise machine'], eq: ['calf_raise_machine'], kind: 'machine', pat: 'calf', art: 'calf', muscles: ['calves'], focus: 'Calves', step: 5, start: 20, rest: 45, reps: [12, 15],
     setup: ['Shoulders under the pads, balls of your feet on the step.'],
     move: ['Rise up as high as you can.', 'Lower slowly into a deep stretch.'],
     feel: 'Your calves.', avoid: ['Bouncing'] });
-  X('leg_press_calf_raise', 'Calf press on the leg press', { eq: ['leg_press'], kind: 'machine', pat: 'calf', art: 'legpress', muscles: ['calves'], focus: 'Calves', step: 5, start: 30, rest: 45, reps: [12, 15],
+  X('leg_press_calf_raise', 'Leg press calf raise', { aka: ['calf press', 'calf press on the leg press'], eq: ['leg_press'], kind: 'machine', pat: 'calf', art: 'legpress', muscles: ['calves'], focus: 'Calves', step: 5, start: 30, rest: 45, reps: [12, 15],
     setup: ['Balls of your feet on the bottom edge of the platform, legs straight.'],
     move: ['Push the platform with your toes.', 'Let your heels come back slowly.'],
     feel: 'Your calves.', avoid: ['Bending your knees'] });
@@ -312,7 +312,7 @@
     setup: ['Set the seat so the handles start at about shoulder height.', 'Sit with your back against the pad and feet flat.'],
     move: ['Breathe out and press up until your arms are almost straight.', 'Lower slowly back to shoulder height.'],
     feel: 'Your shoulders and the back of your arms.', avoid: ['Arching your lower back', 'Shrugging', 'Locking your elbows hard'] });
-  X('db_shoulder_press', 'Seated dumbbell shoulder press', { eq: ['dumbbells', 'adjustable_bench'], kind: 'free', pat: 'v_push', art: 'bench', muscles: ['shoulders'], muscles2: ['triceps'], focus: 'Shoulders and arms', step: 2, start: 4, rest: 75, aka: ['DB shoulder press', 'dumbbell overhead press'],
+  X('db_shoulder_press', 'Seated dumbbell shoulder press', { eq: ['dumbbells', 'adjustable_bench'], kind: 'free', pat: 'v_push', art: 'bench', muscles: ['shoulders'], muscles2: ['triceps'], focus: 'Shoulders and arms', step: 2, start: 4, rest: 75, aka: ['DB shoulder press', 'dumbbell shoulder press', 'dumbbell overhead press'],
     setup: ['Sit on a bench with an upright back.', 'Hold a dumbbell in each hand at shoulder height.'],
     move: ['Press both up until your arms are almost straight.', 'Lower slowly to shoulder height.'],
     feel: 'Your shoulders.', avoid: ['Arching your back'] });
@@ -400,11 +400,7 @@
     feel: 'The sides of your back.', avoid: ['Bending your elbows'] });
 
   // ── Back: rows ────────────────────────────────────────────────────────────
-  X('seated_row', 'Seated cable row', { eq: ['seated_row_machine'], kind: 'cable', pat: 'h_pull', art: 'row', muscles: ['back', 'lats'], muscles2: ['biceps', 'rear'], focus: 'Back and posture', step: 2.5, start: 15, rest: 75, aka: ['seated row', 'cable row', 'low row'],
-    setup: ['Sit tall with your feet on the footplates and knees slightly bent.', 'Hold the handle with your arms straight and chest up.'],
-    move: ['Pull the handle to your belly button, elbows close to your sides.', 'Squeeze your shoulder blades together for a second.', 'Let your arms straighten slowly while you stay tall.'],
-    feel: 'The middle of your back and the back of your shoulders.', avoid: ['Leaning back to swing the weight', 'Rounding your back as you reach forward', 'Shrugging your shoulders'] });
-  X('machine_row', 'Chest-supported row machine', { eq: ['machine_row'], kind: 'machine', pat: 'h_pull', art: 'row', muscles: ['back', 'lats'], muscles2: ['biceps'], focus: 'Back and posture', step: 2.5, start: 15, rest: 75,
+  X('machine_row', 'Seated row machine', { eq: ['machine_row'], kind: 'machine', pat: 'h_pull', art: 'row', muscles: ['back', 'lats'], muscles2: ['biceps', 'rear'], focus: 'Back and posture', step: 2.5, start: 15, rest: 75, aka: ['seated row', 'chest-supported row', 'seated cable row', 'row machine', 'low row'],
     setup: ['Set the seat so the chest pad sits at the middle of your chest.', 'Grab the handles with arms straight.'],
     move: ['Pull the handles back, elbows close to your sides.', 'Squeeze your shoulder blades.', 'Return slowly.'],
     feel: 'The middle of your back.', avoid: ['Lifting your chest off the pad'] });
@@ -458,7 +454,7 @@
     setup: ['Straight bar or rope on a low cable.'],
     move: ['Curl up without moving your elbows.', 'Lower slowly.'],
     feel: 'Your biceps.', avoid: ['Leaning back'] });
-  X('preacher_curl', 'Preacher curl', { eq: ['preacher_bench', 'ez_bar'], kind: 'barbell', pat: 'biceps', lvl: 2, art: 'barbell', muscles: ['biceps'], focus: 'Biceps', step: 2.5, start: 5, rest: 60, reps: [8, 12],
+  X('preacher_curl', 'EZ-bar preacher curl', { aka: ['preacher curl'], eq: ['preacher_bench', 'ez_bar'], kind: 'barbell', pat: 'biceps', lvl: 2, art: 'barbell', muscles: ['biceps'], focus: 'Biceps', step: 2.5, start: 5, rest: 60, reps: [8, 12],
     setup: ['Upper arms flat on the pad.'],
     move: ['Curl up, lower slowly until your arms are nearly straight.'],
     feel: 'Your biceps.', avoid: ['Dropping fast at the bottom'] });
@@ -482,7 +478,7 @@
     setup: ['Lie on a bench, bar straight above your chest.'],
     move: ['Bend your elbows to lower the bar toward your forehead.', 'Straighten your arms.'],
     feel: 'The back of your arms.', avoid: ['Elbows flaring'] });
-  X('db_overhead_extension', 'Dumbbell overhead extension', { eq: ['dumbbells'], kind: 'free', pat: 'triceps', art: 'dumbbell', muscles: ['triceps'], focus: 'Back of arms', step: 2, start: 6, rest: 45, reps: [10, 12],
+  X('db_overhead_extension', 'Dumbbell overhead triceps extension', { aka: ['dumbbell overhead extension', 'overhead triceps extension'], eq: ['dumbbells'], kind: 'free', pat: 'triceps', art: 'dumbbell', muscles: ['triceps'], focus: 'Back of arms', step: 2, start: 6, rest: 45, reps: [10, 12],
     setup: ['Hold one dumbbell overhead with both hands.'],
     move: ['Lower it behind your head.', 'Straighten your arms.'],
     feel: 'The back of your arms.', avoid: ['Arching your back'] });
@@ -552,7 +548,7 @@
     setup: ['Handle on a high cable, stand side-on.'],
     move: ['Pull diagonally down across your body, turning through your hips.', 'Return slowly. Switch sides.'],
     feel: 'The sides of your waist.', avoid: ['Using only your arms'] });
-  X('mountain_climber', 'Mountain climbers', { eq: [], kind: 'body', pat: 'cond', art: 'mat', unit: 'sec', muscles: ['core'], muscles2: ['shoulders', 'quads'], focus: 'Core and fitness', step: 5, start: 20, reps: [20, 40], rest: 45,
+  X('mountain_climber', 'Mountain climber', { aka: ['mountain climbers'], eq: [], kind: 'body', pat: 'cond', art: 'mat', unit: 'sec', muscles: ['core'], muscles2: ['shoulders', 'quads'], focus: 'Core and fitness', step: 5, start: 20, reps: [20, 40], rest: 45,
     setup: ['Push-up position.'], move: ['Drive your knees to your chest one at a time, quickly.'],
     feel: 'Core and heart rate up.', avoid: ['Hips bouncing'] });
   X('farmer_carry', 'Farmer’s carry', { eq: ['dumbbells'], kind: 'free', pat: 'carry', art: 'dumbbell', unit: 'sec', muscles: ['forearms', 'traps', 'core'], focus: 'Grip and core', step: 5, start: 30, reps: [30, 45], rest: 60, aka: ['farmers walk'],
@@ -628,7 +624,7 @@
   X('y_raise', 'Incline Y raise', { eq: ['dumbbells', 'adjustable_bench'], kind: 'free', pat: 'rear', lvl: 2, art: 'bench', muscles: ['rear', 'traps'], focus: 'Upper back and shoulder health', step: 1, start: 2, rest: 45, reps: [10, 15],
     setup: ['Lie face down on an incline bench, light dumbbells hanging.'],
     move: ['Raise your arms up and out into a Y, thumbs up.', 'Lower slowly.'], feel: 'Upper back and the back of your shoulders.', avoid: ['Going heavy'] });
-  X('front_raise', 'Front raise', { eq: ['dumbbells'], kind: 'free', pat: 'lateral', art: 'dumbbell', muscles: ['shoulders'], focus: 'Front of shoulders', step: 1, start: 2, rest: 45, reps: [10, 15],
+  X('front_raise', 'Dumbbell front raise', { aka: ['front raise'], eq: ['dumbbells'], kind: 'free', pat: 'lateral', art: 'dumbbell', muscles: ['shoulders'], focus: 'Front of shoulders', step: 1, start: 2, rest: 45, reps: [10, 15],
     setup: ['Light dumbbells in front of your thighs.'],
     move: ['Raise them in front to shoulder height.', 'Lower slowly.'], feel: 'The front of your shoulders.', avoid: ['Swinging'] });
   X('cable_upright_row', 'Cable upright row', { eq: ['cable_station'], kind: 'cable', pat: 'lateral', lvl: 2, art: 'cable', muscles: ['shoulders', 'traps'], focus: 'Shoulders and traps', step: 2.5, start: 10, rest: 60, reps: [10, 12],
@@ -648,7 +644,7 @@
   X('concentration_curl', 'Concentration curl', { eq: ['dumbbells', 'flat_bench'], kind: 'free', pat: 'biceps', art: 'dumbbell', perSide: true, muscles: ['biceps'], focus: 'Biceps', step: 1, start: 4, rest: 45, reps: [10, 12],
     setup: ['Sit on a bench, elbow braced on the inside of your thigh.'],
     move: ['Curl up, squeeze, lower slowly. Switch sides.'], feel: 'Your biceps.', avoid: ['Swinging'] });
-  X('reverse_curl', 'Reverse curl', { eq: ['ez_bar'], kind: 'barbell', pat: 'biceps', art: 'barbell', muscles: ['forearms', 'biceps'], focus: 'Forearms and biceps', step: 2.5, start: 5, rest: 45, reps: [10, 15],
+  X('reverse_curl', 'EZ-bar reverse curl', { aka: ['reverse curl'], eq: ['ez_bar'], kind: 'barbell', pat: 'biceps', art: 'barbell', muscles: ['forearms', 'biceps'], focus: 'Forearms and biceps', step: 2.5, start: 5, rest: 45, reps: [10, 15],
     setup: ['Hold the bar palms down, elbows by your sides.'],
     move: ['Curl up, lower slowly.'], feel: 'Forearms and biceps.', avoid: ['Wrists bending back'] });
   X('db_kickback', 'Dumbbell triceps kickback', { eq: ['dumbbells', 'flat_bench'], kind: 'free', pat: 'triceps', art: 'bench', perSide: true, muscles: ['triceps'], focus: 'Back of arms', step: 1, start: 3, rest: 45, reps: [10, 15], aka: ['tricep kickback'],
@@ -735,8 +731,8 @@
     v_pull: { m: ['lat_pulldown', 'assisted_pullup', 'plate_pulldown', 'close_grip_pulldown', 'single_arm_pulldown'],
       x: ['lat_pulldown', 'pull_up', 'assisted_pullup', 'chin_up', 'close_grip_pulldown', 'single_arm_pulldown', 'straight_arm_pulldown'],
       f: ['pull_up', 'chin_up', 'lat_pulldown', 'assisted_pullup', 'straight_arm_pulldown'] },
-    h_pull: { m: ['seated_row', 'machine_row', 'plate_row', 'single_arm_cable_row', 'chest_supported_db_row', 'one_arm_db_row'],
-      x: ['one_arm_db_row', 'seated_row', 'chest_supported_db_row', 'barbell_row', 't_bar_row', 'machine_row', 'plate_row'],
+    h_pull: { m: ['machine_row', 'plate_row', 'single_arm_cable_row', 'chest_supported_db_row', 'one_arm_db_row'],
+      x: ['one_arm_db_row', 'machine_row', 'chest_supported_db_row', 'barbell_row', 't_bar_row', 'plate_row'],
       f: ['barbell_row', 'one_arm_db_row', 't_bar_row', 'chest_supported_db_row', 'meadows_row', 'landmine_row', 'inverted_row'] },
     biceps: { m: ['machine_curl', 'cable_curl', 'db_curl', 'hammer_curl'], x: ['db_curl', 'cable_curl', 'ez_bar_curl', 'hammer_curl', 'incline_db_curl', 'preacher_curl'], f: ['ez_bar_curl', 'db_curl', 'hammer_curl', 'incline_db_curl', 'preacher_curl'] },
     triceps: { m: ['tricep_machine', 'cable_pushdown', 'assisted_dip', 'db_kickback'], x: ['cable_pushdown', 'overhead_cable_extension', 'db_overhead_extension', 'skull_crusher', 'tricep_machine'], f: ['skull_crusher', 'close_grip_bench', 'cable_pushdown', 'overhead_cable_extension', 'db_overhead_extension'] },

@@ -15,9 +15,9 @@ one tap away, behind a row that opens (a "dropdown") or a sheet that slides up.
 
 | Tab | What's there |
 |---|---|
-| **Today** | Your next session (start, preview, or move it), the coach's latest message with one-tap replies, this week as a barbell (a plate on the left for each session, on the right for each good food day), your goal countdown and the next reward. |
-| **Train** | This week's sessions, the whole plan a week per dropdown, progress (sessions, weeks on target, personal records, awards), the exercise library, your gym and its equipment, and a pack-your-bag list. |
-| **Eat** | A one-tap food check-in for any day (tap a day of the week, or step back a week, to log or change days you missed), **Eating out** (type a restaurant or a dish and your order comes up already picked; with Claude it's looked up on the web, anywhere in the world), this week's five dinners from the food you eat, and short plans for big meals. |
+| **Today** | Your next session (start, preview, or move it), the coach's latest message with one-tap replies, this week as a barbell (a plate on the left for each session, on the right for each good food day), the gym you're at (one tap to switch), and your body weight. |
+| **Train** | This week's and next week's sessions, your sessions in the order they repeat, progress (sessions, weeks on target, personal records, your biggest gain, awards), the exercise library, your gyms and their equipment, and a pack-your-bag list. Training is continuous: there's no end date or countdown, and new weeks are added as you go. |
+| **Eat** | A one-tap food check-in for any day (tap a day of the week, or step back a week, to log or change days you missed), **Eating out** (type a restaurant or a dish and your order comes up already picked; with Claude it's looked up on the web, anywhere in the world), and short plans for big meals. |
 | **Body** | Your weigh-ins, a chart with a trend line that smooths out daily swings (1M, 3M, 6M, 1Y or all; touch it to read any day), how fast you're gaining or losing each week and whether that suits your goal, an optional goal weight with when you'll get there, and every weigh-in to edit or delete. |
 | **Coach** | A message thread with your coach. It checks in first, every answer leads to a sensible follow-up, and replies can change the plan. The camera button sends a photo of a menu. |
 
@@ -85,8 +85,24 @@ Equipment comes in layers, and the app is honest about which is which:
 4. **Assumed**: the machines nearly every gym floor has, because Australian club pages list
    cardio and free weights but rarely individual machines.
 
-You confirm it with one tap per item. In a session, "Machine taken?" has **Not at this gym**,
-and the plan swaps that machine out everywhere.
+You confirm it with one tap per item. In a session, "Machine taken?" has **Not at this gym**.
+
+**More than one gym.** Tap the gym under your next session on Today (or *Your gyms* on
+Train) to switch where you're training. Each gym keeps its own equipment, and your plan
+never changes when you switch: on the day, anything the gym you're at doesn't have is stood
+in for by the closest move it does have, and the preview, the session and Today say so
+("Instead of the hip thrust machine, not at this gym"). Back at a gym that has it, the
+original is back.
+
+**Finding gyms and checking them, with Claude.** *Find gyms near me* uses your location and
+Claude searches the web: every Anytime Fitness nearby first, then other gyms with a proper
+weights floor, with address, hours and distance. Pick one and Claude checks what it has: it
+reads the club's page, posts, reviews and gym listings, gives each piece of equipment a
+status (seen at this club, probably there, not there), names the machines it spots, and
+shows how your next session fits ("Leg press: seen at this club", "Hip thrust machine: not
+possible here"). Equipment you've unticked yourself stays unticked. A check takes 30 to 60
+seconds and costs roughly 10 to 30¢. Without Claude, you can still search Spotter's list of
+Sydney gyms, find the nearest, or add a gym by hand.
 
 ### The guided session
 
@@ -112,8 +128,8 @@ Out of the box the coach is a script: it checks in, and it understands a handful
   schedule, different equipment) and it adjusts everything to suit: renames sessions,
   changes their exercises, order, sets, reps and rest, caps a weight ("leg curl, 45 kg max")
   or adds a note shown during the session, adds or removes sessions, changes your training
-  days and rotation, extends the plan, adds exercises the library doesn't have and updates
-  your gym's equipment. It can also move, skip, ease or shorten one day, set next time's
+  days and rotation, adds exercises the library doesn't have, updates your gym's equipment
+  and switches which of your gyms you're at. It can also move, skip, ease or shorten one day, set next time's
   weight and reps, log food and weigh-ins, set a goal weight and put a restaurant's picks on
   screen.
 - **It searches the web** when you ask about a specific restaurant, dish or place it doesn't
@@ -172,12 +188,14 @@ make when you order.
 
 The weekly barbell loads as you train and eat well; a fully loaded bar locks for a perfect
 week. Awards are metal medals for real milestones (first session, first PR, ten records,
-streaks, halfway). Rewards set by someone close to you unlock at weeks 2, 4 and 6.
+streaks). *Biggest gain* compares your usual working weight on a lift in your first few
+sessions with your last few, so one warm-up-only day can't inflate it.
 
 ### Placeholders (coming with the full app)
 
-- **Live research for any gym.** The 52 gyms and 14 chains here were researched online on
-  13 October 2026. A backend would run the same search the moment someone picks a new gym.
+- **Live research for any gym without your own key.** With Claude switched on, any gym is
+  looked up when you pick it; without it, the 52 gyms and 14 chains here (researched online
+  on 13 October 2026) are the list.
 - **A real map.** The gym map is a schematic of real distances and directions, so it works offline.
 - **Machine photos and their spot on the floor**, once a gym is mapped. Until then each
   exercise shows a drawing, and you can add your own photo.
@@ -245,7 +263,7 @@ The app is plain HTML, CSS and JavaScript in `spotter/`. There is no build step.
 spotter/
   index.html             App page
   css/app.css            Design system (light and dark) and every screen
-  js/data.js             Content: onboarding options, cuisines, dinners, restaurant menus
+  js/data.js             Content: onboarding options, cuisines, restaurant menus
                          (with what to ask for), meal plans, screening questions, awards
   js/exercises.js        171 exercises: the equipment each needs, movement pattern, level,
                          cues; the order the plan builder prefers them in
@@ -262,6 +280,8 @@ spotter/
   js/onboarding.js       Onboarding, the gym finder and map, the equipment check, the reveal
   js/views.js            The tabs, search and the sheets
   js/body.js             Body weight: weigh-ins, the trend, the chart and the goal
+  js/gym.js              Your gyms: switching, finding gyms near you and checking their
+                         equipment online with Claude
   js/session.js          The guided gym session, supersets and record celebrations
   js/import.js           Bringing history, a program and weigh-ins over from Iron Log
   js/app.js              Boot, migration, navigation, awards and actions

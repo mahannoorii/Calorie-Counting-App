@@ -1060,3 +1060,33 @@ button.daydot:disabled { opacity: 0.4; cursor: default; }
 .srcline a { color: var(--accent-text); text-decoration: none; }
 .coachcard .srcline { margin: 6px 0 0; max-width: none; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── Gyms: where you're training, switched in one tap ─────────────────────── */
+.gymline { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 14px; padding: 11px 0 0; border-top: 0.5px solid var(--sep); text-align: left; font-size: 15px; color: var(--label-2); }
+.gymline > .ic-sm { color: var(--red-text); }
+.gymline__main { flex: 1; min-width: 0; display: grid; }
+.gymline__main b { font-weight: 600; color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gymline__main span { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gymline.is-swap .gymline__main span { color: var(--gold-text); }
+.gymline.is-bad .gymline__main span { color: var(--red-text); }
+.gymline__change { flex: none; color: var(--accent-text); font-weight: 500; }
+.gymrow { padding: 0; gap: 0; }
+.gymrow__main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 11px 4px 11px 16px; text-align: left; color: inherit; }
+.gymrow__use { flex: none; font-size: 14px; font-weight: 600; color: var(--accent-text); }
+.gymrow__info { flex: none; width: 48px; align-self: stretch; display: grid; place-items: center; color: var(--label-3); border-left: 0.5px solid var(--sep); }
+.gymrow__info .ic { width: 21px; height: 21px; }
+.gymrow.is-on .cell__value { color: var(--green-text); font-weight: 600; }
+.cell__note { display: block; margin-top: 3px; font-size: 13px; color: var(--label-2); line-height: 1.35; white-space: normal; }
+.cell__flag { display: flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 13px; font-weight: 500; color: var(--gold-text); white-space: normal; }
+.cell__flag--bad { color: var(--red-text); }
+.gymconf { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; font-size: 14px; line-height: 1.35; background: var(--fill-2); color: var(--label-2); }
+.gymconf .ic-sm { margin-top: 1px; }
+.gymconf--high .ic-sm { color: var(--green-text); }
+.gymconf--medium .ic-sm, .gymconf--low .ic-sm { color: var(--gold-text); }
+.gymex { gap: 12px; }
+.gymex__dot { flex: none; width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; background: var(--fill); color: var(--label-2); }
+.gymex--ok .gymex__dot { background: var(--green-soft); color: var(--green-text); }
+.gymex--swap .gymex__dot { background: var(--gold-soft); color: var(--gold-text); }
+.gymex--bad .gymex__dot { background: var(--red-soft); color: var(--red-text); }
+.gymex--bad .cell__sub { color: var(--red-text); }
+.chip--static { cursor: default; height: 32px; padding: 0 12px; font-size: 14px; display: inline-flex; align-items: center; }

@@ -98,45 +98,6 @@
     { id: 'busy', label: 'Busy days' },
   ];
 
-  // Weeknight dinners: lighter versions of home cooking, two practical tweaks each.
-  const MEALS = [
-    { id: 'm1', c: 'aussie', name: 'Chicken and roast veg traybake', tips: ['One tray: chicken thighs, pumpkin, capsicum, onion.', 'A light spray of oil, not a pour.'] },
-    { id: 'm2', c: 'aussie', name: 'Salmon, greens and baby potatoes', tips: ['Bake the salmon with lemon.', 'Half the plate greens.'] },
-    { id: 'm3', c: 'aussie', name: 'Homemade burgers with salad', tips: ['Lean mince patties, one bun.', 'Load it with salad, skip the chips.'] },
-    { id: 'm4', c: 'italian', name: 'Spaghetti bolognese', tips: ['Lean mince with grated carrot and zucchini.', 'About 75 g of dry pasta per person.'] },
-    { id: 'm5', c: 'italian', name: 'Chicken cacciatore', tips: ['Tomato-based, so it’s light already.', 'Serve with greens instead of extra bread.'] },
-    { id: 'm6', c: 'italian', name: 'Minestrone with crusty bread', tips: ['Beans and veg make it filling.', 'One slice of bread on the side.'] },
-    { id: 'm7', c: 'greek', name: 'Chicken souvlaki and Greek salad', tips: ['Marinate in lemon, garlic and oregano.', 'One pita, plenty of salad.'] },
-    { id: 'm8', c: 'greek', name: 'Lamb kofta with tzatziki', tips: ['Lean lamb mince, grilled.', 'Tzatziki instead of creamy sauces.'] },
-    { id: 'm9', c: 'greek', name: 'Lemon fish with potatoes and beans', tips: ['Bake everything on one tray.', 'Go easy on the oil.'] },
-    { id: 'm10', c: 'middleeast', name: 'Chicken shawarma bowl', tips: ['Grilled chicken, tabouli and a spoon of hummus.', 'Half a pita, not two.'] },
-    { id: 'm11', c: 'middleeast', name: 'Lentils and rice with yoghurt', tips: ['Mujadara: lentils add protein and fibre.', 'Easy on the fried onion on top.'] },
-    { id: 'm12', c: 'middleeast', name: 'Herb stew with rice', tips: ['Lean meat, lots of herbs and beans.', 'One cupped handful of rice.'] },
-    { id: 'm13', c: 'indian', name: 'Chicken tikka with salad and roti', tips: ['Yoghurt marinade, grilled or baked.', 'One roti instead of naan.'] },
-    { id: 'm14', c: 'indian', name: 'Dal with rice and greens', tips: ['Lentils are protein-rich and cheap.', 'Add spinach in the last minutes.'] },
-    { id: 'm15', c: 'indian', name: 'Chickpea curry', tips: ['Tomato base rather than cream.', 'Serve with rice and a cucumber salad.'] },
-    { id: 'm16', c: 'chinese', name: 'Steamed fish with ginger and greens', tips: ['Ginger, shallot and a splash of soy.', 'Steamed rice and bok choy on the side.'] },
-    { id: 'm17', c: 'chinese', name: 'Chicken and vegetable stir-fry', tips: ['One tablespoon of oil for the whole pan.', 'Twice as much veg as noodles.'] },
-    { id: 'm18', c: 'chinese', name: 'Tomato and egg with rice', tips: ['Quick, cheap and high in protein.', 'Add greens on the side.'] },
-    { id: 'm19', c: 'japanese', name: 'Teriyaki salmon with rice and greens', tips: ['Brush the sauce on, don’t pour it.', 'Edamame on the side.'] },
-    { id: 'm20', c: 'japanese', name: 'Chicken and egg rice bowl', tips: ['Oyakodon: chicken, egg and onion.', 'Add a side of greens.'] },
-    { id: 'm21', c: 'japanese', name: 'Miso soup with tofu and soba', tips: ['Light but filling.', 'Add an egg for extra protein.'] },
-    { id: 'm22', c: 'thai', name: 'Thai basil chicken with rice', tips: ['Less oil than the takeaway version.', 'Add green beans.'] },
-    { id: 'm23', c: 'thai', name: 'Chicken larb with lettuce cups', tips: ['Lean mince, lime, herbs.', 'Rice on the side if you’re hungry.'] },
-    { id: 'm24', c: 'thai', name: 'Tom yum soup with prawns', tips: ['A clear broth, not creamy.', 'Bulk it up with mushrooms.'] },
-    { id: 'm25', c: 'vietnamese', name: 'Chicken pho', tips: ['Plenty of herbs and bean sprouts.', 'Go easy on the hoisin.'] },
-    { id: 'm26', c: 'vietnamese', name: 'Rice paper rolls with prawns', tips: ['Fresh, light and fun to make together.', 'Peanut sauce as a dip, not a pour.'] },
-    { id: 'm27', c: 'vietnamese', name: 'Lemongrass chicken noodle salad', tips: ['Grilled chicken on vermicelli and salad.', 'Dressing on the side.'] },
-    { id: 'm28', c: 'korean', name: 'Bibimbap', tips: ['Rice, veg, egg and lean beef or tofu.', 'A little gochujang goes a long way.'] },
-    { id: 'm29', c: 'korean', name: 'Bulgogi with lettuce wraps', tips: ['Wrap in lettuce, rice on the side.', 'Lean cut of beef.'] },
-    { id: 'm30', c: 'korean', name: 'Soft tofu stew', tips: ['Sundubu: warm and high in protein.', 'Small bowl of rice with it.'] },
-    { id: 'm31', c: 'mexican', name: 'Chicken burrito bowl', tips: ['Beans, salsa, lettuce and chicken.', 'Skip the sour cream, add avocado.'] },
-    { id: 'm32', c: 'mexican', name: 'Fish tacos with slaw', tips: ['Grill the fish instead of frying.', 'Two tacos plus a side of slaw.'] },
-    { id: 'm33', c: 'mexican', name: 'Bean and veg chilli', tips: ['Kidney beans and lean mince.', 'Top with yoghurt instead of cheese.'] },
-    { id: 'm34', c: 'filipino', name: 'Chicken adobo with greens', tips: ['Skin-off chicken pieces.', 'Rice and a big serve of greens.'] },
-    { id: 'm35', c: 'filipino', name: 'Sinigang with fish', tips: ['Sour tamarind broth with veg.', 'Light and filling.'] },
-    { id: 'm36', c: 'filipino', name: 'Chicken tinola', tips: ['Ginger soup with chicken and greens.', 'Comforting on a cold night.'] },
-  ];
 
   // Typical menus when eating out. "pick" = coach's choice, "ok" = fine, "treat" = enjoy now and then.
   // Real restaurant menus come later; these cover what most places of each kind serve.
@@ -392,14 +353,11 @@
     { id: 'smartorder', name: 'Smart Order', desc: 'Ate out with a plan.', icon: 'fork', metal: 'silver' },
     { id: 'streak3', name: 'Three-Week Streak', desc: 'Three weeks in a row on target.', icon: 'flame', metal: 'gold' },
     { id: 'ten', name: '10 Sessions', desc: 'Ten sessions done.', icon: 'trophy', metal: 'gold' },
-    { id: 'halfway', name: 'Halfway', desc: 'Half your plan done.', icon: 'flag', metal: 'silver' },
-    { id: 'finish', name: 'Finish Line', desc: 'Every session in your plan.', icon: 'trophy', metal: 'platinum' },
   ];
 
-  const DEFAULT_REWARDS = { 2: 'Your favourite coffee and cake', 4: 'A movie night, your pick', 6: 'New gym shoes' };
 
   window.SpotterData = {
     COOLDOWN, GOALS, FEELS, EXPERIENCE, WORRIES, FOCUS, TIMES,
-    CUISINES, DERAILERS, MEALS, MENUS, CUISINE_KEYS, MOMENTS, SCREENING, AWARDS, DEFAULT_REWARDS,
+    CUISINES, DERAILERS, MENUS, CUISINE_KEYS, MOMENTS, SCREENING, AWARDS,
   };
 })();

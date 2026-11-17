@@ -51,8 +51,69 @@
     const g = gym(); if (g && g.noEx && g.noEx.includes(id)) return false; // "not at this gym" for one move
     k = k || kit(); return ex.eq.every((t) => k.has(t));
   }
+  // Possible at any of your gyms (the plan can hold it; other gyms get a stand-in on the day).
+  function canDoAnywhere(id) {
+    const ex = D.EX[id]; if (!ex) return false;
+    return gyms().some((g) => !(g.noEx || []).includes(id) && ex.eq.every((t) => kitSet(g.kit || []).has(t))) || (!gym() && canDo(id));
+  }
   function missing(id, k) { const ex = D.EX[id]; k = k || kit(); return ex ? ex.eq.filter((t) => !k.has(t)) : []; }
   function gymName() { const g = gym(); return g ? g.name : 'your gym'; }
+
+  // ── Your gyms: the one you're training at (profile.gym) and the others you've saved ──
+  // Switching gyms never rebuilds the plan: each gym keeps its own equipment, and on the day
+  // anything it doesn't have is stood in for by the closest move it does (see exercisesFor).
+  function savedGyms() { const s = S(); if (!Array.isArray(s.gyms)) s.gyms = []; return s.gyms; }
+  function gyms() { const g = gym(); return (g ? [g] : []).concat(savedGyms().filter((x) => !g || x.id !== g.id)); }
+  function gymById(id) { return gyms().find((x) => x.id === id) || null; }
+  function sameGym(a, b) { return !!(a && b) && (a.id === b.id || (norm(a.name) === norm(b.name) && norm(a.suburb) === norm(b.suburb))); }
+  function switchGym(id) {
+    const p = S().profile; const cur = gym(); const list = savedGyms();
+    if (cur && cur.id === id) return cur;
+    const i = list.findIndex((x) => x.id === id); if (i < 0) return null;
+    const next = list.splice(i, 1)[0];
+    if (cur && !list.some((x) => x.id === cur.id)) list.unshift(cur);
+    p.gym = next; p.gymId = next.id; next.used = today();
+    if (S().plan) S().plan.gymId = next.id;
+    App.save();
+    return next;
+  }
+  // Keep a gym (from the directory, Claude's search or added by hand). If you already have it,
+  // what's new fills in and your equipment ticks stay. Returns the kept gym.
+  function addGym(g, now) {
+    const cur = gym(); const list = savedGyms();
+    let kept = cur && sameGym(cur, g) ? cur : list.find((x) => sameGym(x, g));
+    if (kept) ['address', 'url', 'hours', 'phone', 'lat', 'lng', 'note', 'suburb'].forEach((k) => { if (g[k] && !kept[k]) kept[k] = g[k]; });
+    else { kept = g; list.push(g); }
+    while (list.length > 15) { const old = list.filter((x) => !cur || x.id !== cur.id).sort((a, b) => ((a.used || '') < (b.used || '') ? -1 : 1))[0]; list.splice(list.indexOf(old), 1); }
+    if (now) switchGym(kept.id);
+    App.save();
+    return kept;
+  }
+  function removeGym(id) { const s = S(); const cur = gym(); if (cur && cur.id === id) return false; s.gyms = savedGyms().filter((x) => x.id !== id); App.save(); return true; }
+  // The chain a gym belongs to, from its name ("Anytime Fitness Kellyville" → anytime).
+  function chainFromName(name) {
+    const n = norm(name);
+    return Object.keys(DB.CHAINS).find((c) => n.indexOf(norm(DB.CHAINS[c].name)) === 0 || n.indexOf(' ' + norm(DB.CHAINS[c].name)) >= 0) || 'independent';
+  }
+  // A gym Claude found on the web, in the app's shape: the chain's usual equipment to start.
+  function webGym(o) {
+    const chain = o.chain && DB.CHAINS[o.chain] ? o.chain : chainFromName(o.name);
+    const g = { id: 'web-' + norm(o.name + ' ' + (o.suburb || '')).replace(/ /g, '-').slice(0, 56), chain, name: o.name, short: o.name, suburb: o.suburb || '', address: o.address || '', url: o.url || '', hours: o.hours || '', lat: o.lat, lng: o.lng, note: o.note || '', web: true };
+    if (DB.CHAINS[chain] && o.name.toLowerCase().indexOf(DB.CHAINS[chain].name.toLowerCase()) === 0) g.short = o.name.slice(DB.CHAINS[chain].name.length).trim() || o.name;
+    g.kit = kitLayers(g).on;
+    return g;
+  }
+  // Nearest suburb we know to a point (for "near me" searches), if one is close.
+  function nearestSuburb(pt) {
+    let best = null; Object.keys(DB.SUBURBS).forEach((k) => { const d = km(pt, DB.SUBURBS[k]); if (!best || d < best.km) best = { name: k, km: d }; });
+    return best && best.km < 6 ? best.name : '';
+  }
+  // How a session fits the gym you're at: each exercise, and what stands in for it here.
+  function gymCheck(slot) {
+    const exs = exercisesFor(slot.key, slot.week, slot.id); const g = gym(); const r = (g && g.research) || null;
+    const conf = (id) => { if (!r || !r.equipment) return ''; const eq = (D.EX[id] || {}).eq || []; if (!eq.length) return 'none'; const st = eq.map((t) => (r.equipment.find((x) => x.key === t) || {}).status || ''); return st.every((x) => x === 'yes') ? 'yes' : st.every((x) => x === 'yes' || x === 'likely') ? 'likely' : ''; };
+    return exs.map((e) => ({ id: e.id, planned: e.planned || null, unavailable: !!e.unavailable, sure: conf(e.id) }));
+  }
   function gymShort() { const g = gym(); return g ? g.short || g.name : 'Your gym'; }
 
   // Finding a gym: by name or suburb, or nearest to a point.
@@ -205,9 +266,9 @@
     const t = today();
     const left = [0, 1, 2, 3, 4, 5, 6].filter((i) => addDays(weekStart(t), i) >= t).some((i) => p.days.includes(i));
     const start = p.start === 'next' || !left ? addDays(weekStart(t), 7) : t;
-    const ev = p.event && p.event.date && diffDays(start, p.event.date) >= 14 ? p.event : null;
-    let end = ev ? addDays(ev.date, -1) : addDays(weekStart(start), 8 * 7 - 1);
-    if (diffDays(start, end) > 20 * 7) end = addDays(start, 20 * 7 - 1);
+    // Training is continuous: sessions are laid out eight weeks ahead and topped up as you go.
+    const ev = p.event && p.event.date && p.event.date > t ? p.event : null;
+    const end = addDays(weekStart(start), 8 * 7 - 1);
     const lvl = levelOf(p); const style = styleOf(p);
     const g = p.gym || legacyGym(p.gymId); const k = kitSet(g.kit);
     const goals = p.goals || []; const worries = p.worries || [];
@@ -305,9 +366,9 @@
     if (w.includes('watched')) R.push(['shield', 'bg-purple', 'Machines and mat work first', 'Less time in the busy free-weights area while you settle in.']);
     if (w.includes('busy')) R.push(['swap', 'bg-accent', 'A swap for every exercise', 'Something taken? One tap gives you another move for the same muscles.']);
     if (w.includes('program')) R.push(['list', 'bg-ink', 'A real program', 'Every session tells you the weight and reps to beat, and it adjusts from how each set felt.']);
-    if (w.includes('motivation') || w.includes('consistency')) R.push(['flame', 'bg-red', 'Weekly targets, not daily ones', 'Rest days never break your streak, and rewards unlock as you show up.']);
+    if (w.includes('motivation') || w.includes('consistency')) R.push(['flame', 'bg-red', 'Weekly targets, not daily ones', 'Rest days never break your streak. Hit the week, not every day.']);
     if (w.includes('time') && !plan.superset) R.push(['clock', 'bg-teal', 'Short, focused sessions', 'If a day gets tight, tell me and I’ll cut it to 20 minutes.']);
-    if (w.includes('food')) R.push(['fork', 'bg-green', 'Food sorted too', 'Easy dinners from food you like, and your order picked when you eat out.']);
+    if (w.includes('food')) R.push(['fork', 'bg-green', 'Food sorted too', 'Your order picked when you eat out, wherever you are.']);
     return R.slice(0, 8);
   }
 
@@ -319,7 +380,7 @@
       return { name: 'Get stronger', sets: 3, note: 'Steady increases, clean reps.' };
     }
     const blk = Math.floor((week - 1) / 4) + 1; const wib = ((week - 1) % 4) + 1;
-    if (plan.deload && wib === 4 && week < plan.weeks) return { name: 'Lighter week', deload: true, note: 'One set less and about 10% lighter, so you recover and come back stronger.' };
+    if (plan.deload && wib === 4) return { name: 'Lighter week', deload: true, note: 'One set less and about 10% lighter, so you recover and come back stronger.' };
     if (blk === 1 && wib === 1) return { name: 'Block 1', note: 'Find your working weights: finish each set with a rep or two left.' };
     if (wib === 1) return { name: 'Block ' + blk, note: plan.rotate && blk % 2 === 0 ? 'Fresh moves for a new block. Same muscles, new start.' : 'New block: build on last block’s weights.' };
     return { name: 'Block ' + blk, note: 'Beat last week by a rep or a little weight.' };
@@ -405,6 +466,14 @@
       return { id, base, sets: trim ? Math.min(2, sets) : sets, reps: it.reps || null, rest: trim ? null : it.rest || null, role: it.role || 'acc', pair: trim ? null : it.pair || null, pairRole: trim ? null : it.pairRole || null, deload: !!phase.deload, cap: it.cap || null, note: it.note || null };
     });
     if (trim) list = list.slice(0, trim);
+    // At a gym without the kit for something, the closest move it has stands in, just for
+    // today: your plan keeps the original for the gyms that have it.
+    const k = kit(); const used = new Set(list.map((e) => e.id));
+    list.forEach((e) => {
+      if (canDo(e.id, k)) return;
+      const alt = swapsFor(e.id, e.base, Array.from(used))[0];
+      if (alt) { e.planned = e.id; e.id = alt; used.add(alt); } else e.unavailable = true;
+    });
     return list;
   }
   // Other moves for the same job that this gym has, best first.
@@ -584,12 +653,28 @@
     const ids = new Set(plan.slots.map((sl) => sl.id));
     return { total: plan.slots.length, done: S().log.filter((l) => l.slot && ids.has(l.slot)).length };
   }
-  function partnerRewards() {
-    const plan = S().plan; if (!plan) return [];
-    const rw = S().rewards || D.DEFAULT_REWARDS; const per = plan.days.length;
-    // the sessions actually planned by the end of that week (a plan can start mid-week)
-    const need = (w) => plan.slots.filter((sl) => sl.week <= w && !isSkipped(sl)).length || per * w;
-    return Object.keys(rw).map(Number).filter((w) => w <= plan.weeks && rw[w]).map((w) => ({ week: w, text: rw[w], need: need(w), open: !!S().opened[w] }));
+  // The lift that's gone up the most, measured fairly: the usual working weight in your first
+  // few sessions of it against your last few (the middle value, so one warm-up-only day or one
+  // heavy single can't fake it), at least three weeks apart. A jump too big to be real (two
+  // different machines logged under one name) is left out.
+  function biggestGain() {
+    const by = {};
+    S().log.forEach((l) => l.ex.forEach((e) => {
+      const ex = D.EX[e.id]; if (!ex || ex.unit !== 'kg' || ex.assist || !e.sets || !e.sets.length) return;
+      const ws = e.sets.filter((x) => x.w > 0 && x.r >= 3).map((x) => x.w); if (!ws.length) return;
+      (by[e.id] = by[e.id] || []).push({ w: Math.max.apply(null, ws), date: l.date });
+    }));
+    const mid = (a) => { const b = a.slice().sort((x, y) => x - y); return b[Math.floor((b.length - 1) / 2)]; };
+    let best = null;
+    Object.keys(by).forEach((id) => {
+      const h = by[id].slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)); if (h.length < 4) return;
+      const n = Math.min(3, Math.floor(h.length / 2)); const a = h.slice(0, n); const b = h.slice(-n);
+      if (diffDays(h[0].date, h[h.length - 1].date) < 21) return;
+      const from = mid(a.map((x) => x.w)); const to = mid(b.map((x) => x.w)); const d = Math.round((to - from) * 100) / 100;
+      if (!(from > 0) || d <= 0 || to > from * 2.5) return;
+      if (!best || d > best.d) best = { id, d, from, to, since: h[0].date };
+    });
+    return best;
   }
   function liftHistory() {
     const by = {};
@@ -655,15 +740,6 @@
     return out;
   }
   function cuisines() { const p = S().profile; return p && p.cuisines && p.cuisines.length ? p.cuisines : ['aussie', 'italian', 'chinese']; }
-  // Five weeknight dinners from the cuisines this person eats; "Shuffle" moves the seed.
-  function dinners(wk) {
-    wk = wk || weekStart(today());
-    const pool = D.MEALS.filter((m) => cuisines().includes(m.c));
-    const list = pool.length ? pool : D.MEALS;
-    const seed = (Math.floor(App.parse(wk).getTime() / 604800000) + S().dinnerSeed * 3) % list.length;
-    const out = []; for (let i = 0; out.length < 5 && i < list.length * 2; i++) { const m = list[(seed + i * 7) % list.length]; if (!out.includes(m)) out.push(m); }
-    return out.map((m, i) => ({ day: addDays(wk, i), meal: m }));
-  }
   // Whole words only ("inn" is a pub, "dinner" isn't), plurals and possessives allowed.
   const keyRes = D.CUISINE_KEYS.map(([id, keys]) => [id, keys.map((k) => new RegExp('(^|[^a-z])' + k.replace(/[’]/g, "'").replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "(s|'s)?(?![a-z])"))]);
   function detectCuisine(text) {
@@ -695,7 +771,7 @@
       const n = nextOpen(today()) || nextOpen();
       sessionKeys().forEach((k) => add({ id: 'sess:' + k, type: 'Training', icon: 'dumbbell', title: plan.sessions[k].name, sub: plan.sessions[k].title, act: 'previewSession', data: (openSlots().find((x) => x.key === k) || plan.slots.find((x) => x.key === k) || {}).id, keys: 'workout session ' + plan.sessions[k].title }));
       if (n) add({ id: 'next', type: 'Training', icon: 'calendar', title: 'Next session', sub: plan.sessions[n.key].name + ' · ' + rel(slotDate(n)), act: 'previewSession', data: n.id, keys: 'next workout today schedule' });
-      add({ id: 'plan', type: 'Training', icon: 'list', title: 'Your plan', sub: plan.weeks + ' weeks', act: 'go', data: 'train', keys: 'program schedule weeks plan' });
+      add({ id: 'plan', type: 'Training', icon: 'list', title: 'Your sessions', sub: sessionKeys().filter((k, i, a) => plan.sessions[k] && a.indexOf(k) === i).map((k) => plan.sessions[k].name).join(', '), act: 'go', data: 'train', keys: 'program schedule weeks plan rotation sessions' });
       add({ id: 'progress', type: 'Training', icon: 'trend', title: 'Progress', sub: 'Your lifts over time', act: 'openProgress', keys: 'progress strength lifts stronger history' });
     }
     const k = kit(); const inPlan = planIds();
@@ -705,7 +781,8 @@
         keys: e.focus + ' ' + (e.aka || []).join(' ') + ' ' + (e.muscles || []).concat(e.muscles2 || []).map((m) => D.MUSCLES[m]).join(' ') + ' ' + e.eq.map((t) => D.EQUIP_NAME[t]).join(' ') + ' exercise' });
     });
     add({ id: 'eatout', type: 'Food', icon: 'fork', title: 'Eating out', sub: 'Get your order picked', act: 'openEatOut', keys: 'restaurant dinner lunch menu order eating out cafe' });
-    add({ id: 'dinners', type: 'Food', icon: 'list', title: 'This week’s dinners', sub: 'Five easy weeknight meals', act: 'openDinners', keys: 'meals recipes dinner cook week ideas' });
+    add({ id: 'gyms', type: 'Training', icon: 'pin', title: 'Your gyms', sub: 'Training at ' + gymShort() + ' · switch or check equipment', act: 'openGyms', keys: 'gym gyms change gym switch gym where training equipment machines anytime fitness location' });
+    if (App.AI && App.AI.ready()) add({ id: 'findgyms', type: 'Training', icon: 'search', title: 'Find gyms near me', sub: 'Claude searches the web, Anytime Fitness first', act: 'gymFindNear', keys: 'find gym near me nearby anytime fitness search gyms new gym' });
     const bw = App.Body && App.Body.latest();
     add({ id: 'body', type: 'Body', icon: 'scale', title: 'Body weight', sub: bw ? App.fmtKg(Math.round(bw.kg * 10) / 10) + ' kg · ' + fmtDate(bw.d, 'dm') : 'Your weight over time', act: 'go', data: 'body', keys: 'weight weigh scale bodyweight kg trend graph chart gain loss lose' });
     add({ id: 'logweight', type: 'Body', icon: 'plus', title: 'Log your weight', sub: 'Add a weigh-in', act: 'bodyLog', keys: 'weigh in scale log weight kg' });
@@ -715,7 +792,7 @@
     s.places.forEach((pl) => add({ id: 'place:' + pl.name, type: 'Restaurants', icon: 'pin', title: pl.name, sub: (D.MENUS[pl.cuisine] ? D.MENUS[pl.cuisine].name + ' · your picks' : 'Your picks'), act: 'openMenu', data: pl.name + '|' + pl.cuisine, keys: 'restaurant ' + pl.cuisine }));
     [['sore', 'I’m sore'], ['short', 'Short on time'], ['move', 'Move a session'], ['taken', 'Machine taken'], ['motivation', 'Not feeling it'], ['pain', 'Something hurts']].forEach(([k, t]) => add({ id: 'coach:' + k, type: 'Ask your coach', icon: 'coach', title: t, sub: 'Message your coach', act: 'coachTopic', data: k, keys: 'coach help ' + t }));
     if (s.profile && s.profile.health && s.profile.health.asthma) add({ id: 'coach:asthma', type: 'Ask your coach', icon: 'puffer', title: 'Asthma during a session', sub: 'What to do', act: 'coachTopic', data: 'asthma', keys: 'asthma breathing wheeze puffer inhaler' });
-    [['goal', 'Your goal', 'flag', 'openGoal', 'countdown goal holiday event why'], ['rewards', 'Rewards', 'gift', 'openProfile', 'partner rewards treats'], ['awards', 'Awards', 'star', 'openAwards', 'awards medals badges'], ['settings', 'Settings', 'gear', 'openProfile', 'sound theme dark mode appearance backup reset']].forEach(([id, t, ic, act, keys]) => add({ id, type: 'You', icon: ic, title: t, act, keys }));
+    [['awards', 'Awards', 'star', 'openAwards', 'awards medals badges'], ['settings', 'Settings', 'gear', 'openProfile', 'sound theme dark mode appearance backup reset']].forEach(([id, t, ic, act, keys]) => add({ id, type: 'You', icon: ic, title: t, act, keys }));
     return out;
   }
   function search(q) {
@@ -741,7 +818,7 @@
     if (d === 4 || d === 5) out.push(byId('moment:weekend'));
     const freq = Object.keys(s.usage).sort((a, b) => s.usage[b].n - s.usage[a].n).slice(0, 4).map(byId);
     freq.forEach((x) => out.push(x));
-    if (out.length < 4) ['next', 'dinners', 'coach:sore', 'progress'].forEach((id) => out.push(byId(id)));
+    if (out.length < 4) ['next', 'eatout', 'body', 'progress'].forEach((id) => out.push(byId(id)));
     const seen = new Set();
     return out.filter((x) => x && !seen.has(x.id) && seen.add(x.id)).slice(0, 5);
   }
@@ -752,20 +829,18 @@
     s.recent = [id].concat(s.recent.filter((x) => x !== id)).slice(0, 8); App.save();
   }
 
-  // After the equipment changes: anything in the plan that's no longer possible is swapped for
-  // the best move that is. Returns what changed, for the coach to mention.
-  function fixPlanForKit() {
-    const plan = S().plan; const out = []; if (!plan) return out;
-    const k = kit(); const done = new Set();
+  // What the gym you're at changes in your plan: each planned move it can't do, and what
+  // stands in for it here. Nothing is rewritten, so another gym still gets the original.
+  function gymSubs() {
+    const plan = S().plan; const out = []; if (!plan) return out; const seen = new Set();
     sessionKeys().forEach((key) => exercisesFor(key, 1).concat(plan.rotate ? exercisesFor(key, 5) : []).forEach((e) => {
-      if (done.has(e.base) || canDo(e.id, k)) return; done.add(e.base);
-      const alt = swapsFor(e.id, e.base)[0];
-      if (alt) { if (alt === e.base) delete S().swaps[e.base]; else S().swaps[e.base] = alt; out.push([e.id, alt]); }
+      if (e.planned && !seen.has(e.planned)) { seen.add(e.planned); out.push([e.planned, e.id]); }
     }));
-    ['warmup', 'finisher'].forEach((w) => { const c = plan[w]; if (c && !canDo(c.id, k)) { const alt = cardioOptions(c.id)[0]; if (alt) c.id = alt; } });
-    App.save();
     return out;
   }
+  function fixPlanForKit() { return gymSubs(); }
+  // The warm-up or finisher machine, or one this gym has.
+  function cardioAt(c) { if (!c || canDo(c.id)) return c; const alt = cardioOptions(c.id)[0]; return alt ? Object.assign({}, c, { id: alt, planned: c.id }) : c; }
   // Every exercise id in the plan right now (after swaps).
   function planIds() {
     const plan = S().plan; const out = new Set(); if (!plan) return out;
@@ -775,11 +850,12 @@
 
   App.E = {
     gym, kit, kitSet, canDo, missing, kitLayers, gymFromDirectory, customGym, legacyGym, gymName, gymShort, gymsNear, suburbPoint, findGyms, km, levelOf, styleOf, dayOptions, minOptions,
+    gyms, gymById, savedGyms, switchGym, canDoAnywhere, addGym, removeGym, sameGym, chainFromName, webGym, nearestSuburb, gymCheck, gymSubs, cardioAt,
     buildPlan, splitFor, SPLITS, phaseFor, timeOf, cardioOptions, swapsFor, planIds, regionOf, fixPlanForKit,
     slotDate, isDone, isSkipped, reschedule, ensureAhead, streakBack, allSlots, openSlots, slotsOn, nextOpen, missed, slotById, freeDayAfter, sessionName, sessionKeys, sessionTag, exercisesFor,
     lastPerf, stepOf, effortWord, suggest, predictNext, prFor, prText, bestOf, prCount,
-    sessionsInWeek, plannedInWeek, targetInWeek, foodScore, foodGaps, foodFirstDay, week, streakWeeks, totals, partnerRewards, liftHistory, FOOD_TARGET,
-    upNext, coachTriggers, cuisines, dinners, detectCuisine, extractPlace,
+    sessionsInWeek, plannedInWeek, targetInWeek, foodScore, foodGaps, foodFirstDay, week, streakWeeks, totals, liftHistory, biggestGain, FOOD_TARGET,
+    upNext, coachTriggers, cuisines, detectCuisine, extractPlace,
     searchIndex, search, suggestions, recents, track,
   };
 })();

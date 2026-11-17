@@ -80,12 +80,12 @@
     return (w.city ? 'in or near ' + w.city : 'somewhere unknown') + (w.tz ? ' (going by their phone\'s time zone, ' + w.tz + ')' : '');
   }
   // Web search and page reading, unless the account has them switched off.
-  function webTools(searches) {
+  function webTools(searches, fetches) {
     const st = settings(); const out = [];
     if (st.noWeb && App.nowMs() - st.noWeb < 24 * 3600000) return out;
     const ws = { type: 'web_search_20260209', name: 'web_search', max_uses: searches || 4 }; const loc = userLocation(); if (loc) ws.user_location = loc;
     out.push(ws);
-    if (!(st.noFetch && App.nowMs() - st.noFetch < 24 * 3600000)) out.push({ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 3, max_content_tokens: 12000 });
+    if (!(st.noFetch && App.nowMs() - st.noFetch < 24 * 3600000)) out.push({ type: 'web_fetch_20260209', name: 'web_fetch', max_uses: fetches || 3, max_content_tokens: 12000 });
     if (st.webDirect && st.webDirect[settings().model]) out.forEach((t) => { t.allowed_callers = ['direct']; });
     return out;
   }
@@ -99,7 +99,7 @@
     return false;
   }
   // Where the answer came from: pages it cited and pages it read.
-  function addSources(content, into) {
+  function addSources(content, into, withSearch) {
     const seen = new Set(into.map((x) => x.url));
     const put = (url, title) => { if (!url || seen.has(url) || !/^https?:\/\//.test(url) || into.length >= 6) return; seen.add(url); into.push({ url, title: String(title || '').slice(0, 90) }); };
     (content || []).forEach((b) => {
@@ -108,6 +108,7 @@
     (content || []).forEach((b) => {
       if (b.type === 'web_fetch_tool_result' && b.content && b.content.url) put(b.content.url, b.content.content && b.content.content.title);
     });
+    if (withSearch) (content || []).forEach((b) => { if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) b.content.slice(0, 2).forEach((r) => put(r.url, r.title)); });
     return into;
   }
 
@@ -149,9 +150,12 @@
     if (plan) {
       sec('Gym');
       const g = E.gym();
-      L.push((g ? g.name : 'Unknown gym') + '. Equipment: ' + (g && g.kit ? g.kit.map((k) => D.EQUIP_NAME[k] || k).join(', ') : 'unknown') + '.');
+      L.push('Training at ' + (g ? g.name : 'an unknown gym') + '. Equipment: ' + (g && g.kit ? g.kit.map((k) => D.EQUIP_NAME[k] || k).join(', ') : 'unknown') + '.');
+      if (g && g.research) L.push('Checked online ' + App.iso(new Date(g.research.at)) + ' (' + g.research.confidence + ' confidence): ' + (g.research.summary || '') + (g.research.machines && g.research.machines.length ? ' Machines seen: ' + g.research.machines.map((m) => m.name).join(', ') + '.' : ''));
+      const subs = E.gymSubs(); if (subs.length) L.push('At this gym the app stands in, just here: ' + subs.map((x) => exName(x[1]) + ' for ' + exName(x[0])).join('; ') + '.');
+      const others = E.gyms().filter((x) => !g || x.id !== g.id); if (others.length) L.push('Their other saved gyms (for set_current_gym): ' + others.map((x) => x.name).join('; ') + '.');
       sec('Program');
-      L.push((plan.own ? 'Their own program' + (p.program && p.program.source ? ', carried over from ' + p.program.source : '') : (E.SPLITS[plan.split] || {}).name || plan.split) + '. Trains ' + plan.days.map((d) => DOW_LONG[d]).join(', ') + ', about ' + plan.mins + ' min. Plan runs ' + plan.start + ' to ' + plan.end + ' (' + plan.weeks + ' weeks).' + (plan.deload ? ' Every 4th week is lighter.' : '') + (plan.event ? ' Working towards ' + plan.event.name + ' on ' + plan.event.date + '.' : ''));
+      L.push((plan.own ? 'Their own program' + (p.program && p.program.source ? ', carried over from ' + p.program.source : '') : (E.SPLITS[plan.split] || {}).name || plan.split) + '. Trains ' + plan.days.map((d) => DOW_LONG[d]).join(', ') + ', about ' + plan.mins + ' min. Training is continuous since ' + plan.start + ': no end date, new weeks are added automatically.' + (plan.deload ? ' Every 4th week is lighter.' : '') + (plan.event ? ' Something coming up: ' + plan.event.name + ' on ' + plan.event.date + ' (training carries on after it).' : ''));
       const ph = E.phaseFor(curWeek(plan), plan); L.push('This week\'s phase: ' + ph.name + '. ' + ph.note);
       L.push('Rotation: ' + plan.order.map((k) => (plan.sessions[k] ? plan.sessions[k].name : k) + ' [' + k + ']').join(' → '));
       sec('Sessions (session_key, name, then each exercise as it stands)');
@@ -243,14 +247,17 @@
     '- Only suggest exercises their gym can do. Use search_exercises to find them and use the ids it returns.',
     '',
     'Doing things:',
-    '- You can reshape their whole program with your tools: rename sessions; change a session\'s exercises, order, sets, reps and rest; put a weight cap or a note on an exercise; add or remove sessions; change training days, the rotation and how long the plan runs; add custom exercises; update the gym\'s equipment. You can also move, skip, ease or shorten single days, set next-time targets and log food.',
+    '- You can reshape their whole program with your tools: rename sessions; change a session\'s exercises, order, sets, reps and rest; put a weight cap or a note on an exercise; add or remove sessions; change training days and the rotation; add custom exercises; update the gym\'s equipment. You can also move, skip, ease or shorten single days, set next-time targets and log food.',
     '- When they ask for a change, or tell you about their situation (an injury, a physio\'s advice, a new schedule, different equipment, a goal) and want the plan to suit it, make every change needed in one go, then summarise what changed in a few short lines. An Undo button appears under your message automatically, so don\'t ask permission for something they asked for.',
     '- If something is only mentioned in passing, suggest the change and wait for a yes.',
     '- update_session changes a session for every week it appears; add only_session_id to change just that one day. Its exercises list replaces the old list completely, so include every exercise to keep, in order.',
-    '- set_schedule changes days, rotation and plan length from a date on. Sessions already done are never touched.',
+    '- set_schedule changes training days and the rotation from a date on. Sessions already done are never touched. Training is continuous: there is no end date or finish line, so never talk about one.',
     '- Keep notes with remember_note about anything that should shape future coaching (injuries, physio or GP advice, limits, preferences). Your notes are in the data below; when something changes, forget the old note and save a new one.',
     '- Use the session ids and session keys from the data. Dates are YYYY-MM-DD. For deeper history on one lift, call get_exercise_history.',
     '- With an injury, be conservative: follow any physio or GP advice they mention, leave out what aggravates it, cap weights with max_kg where it helps, and keep their physio in the loop. You are not a physio and never diagnose.',
+    '',
+    'Gyms:',
+    '- They may train at different gyms. Each saved gym has its own equipment, and when the gym they are at lacks something the app stands in the closest move just for that day (listed in the data). set_current_gym switches gym; Today has a gym finder that searches the web and checks a gym\'s equipment online.',
     '',
     'Body weight:',
     '- They log weigh-ins on the Body tab. Talk about the smoothed trend and the weekly rate, not single readings: a kilo or two from day to day is mostly water.',
@@ -312,14 +319,15 @@
       add_to_rotation: { type: 'boolean', description: 'Default true' }, rotation_position: { type: 'integer', description: '0-based position in the rotation; default the end' },
     }, required: ['name', 'exercises'] } },
     { name: 'remove_session', description: 'Take a session out of the rotation. Upcoming days are re-planned with the remaining sessions; history is kept.', input_schema: { type: 'object', properties: { session_key: str('Session key') }, required: ['session_key'] } },
-    { name: 'set_schedule', description: 'Re-plan upcoming days from a date: which weekdays they train, the order sessions rotate in, which session comes first, and when the plan ends (to extend or shorten it). Done sessions are never touched.', input_schema: { type: 'object', properties: {
+    { name: 'set_schedule', description: 'Re-plan upcoming days from a date: which weekdays they train, the order sessions rotate in and which session comes first. Training is continuous (new weeks are added automatically). Done sessions are never touched.', input_schema: { type: 'object', properties: {
       training_days: { type: 'array', items: { type: 'string', enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] } },
       rotation: { type: 'array', items: { type: 'string' }, description: 'Session keys in order' },
       start_with: str('Session key for the first upcoming day; default: the one after the last session they did'),
-      from_date: str('YYYY-MM-DD, default today'), end_date: str('YYYY-MM-DD, when the plan ends'),
+      from_date: str('YYYY-MM-DD, default today'),
     } } },
     { name: 'add_custom_exercise', description: 'Add an exercise the library doesn\'t have, based on the closest library exercise (it borrows its equipment, cues and drawing). Returns the new exercise id.', input_schema: { type: 'object', properties: { name: str('e.g. "Single-arm cable row"'), based_on_exercise_id: str('Closest library exercise') }, required: ['name', 'based_on_exercise_id'] } },
     { name: 'update_gym_equipment', description: 'Add or remove equipment at their gym, using equipment keys from list_equipment.', input_schema: { type: 'object', properties: { add: { type: 'array', items: { type: 'string' } }, remove: { type: 'array', items: { type: 'string' } } } } },
+    { name: 'set_current_gym', description: 'Switch which of their saved gyms they are training at. Each gym keeps its own equipment and sessions adapt to it automatically. Use when they say they are at a different gym.', input_schema: { type: 'object', properties: { gym: str('The gym\'s name, as in the data') }, required: ['gym'] } },
     { name: 'list_equipment', description: 'All equipment keys the app knows, with names, and whether their gym has each.', input_schema: { type: 'object', properties: {} } },
     { name: 'remember_note', description: 'Save a note that shapes future coaching: an injury, physio or GP advice, a limit, a preference. Kept between chats.', input_schema: { type: 'object', properties: { note: str('One clear sentence, e.g. "Sciatica (Nov 2026): physio says no deadlifts or heavy squats; leg curl max 45 kg."') }, required: ['note'] } },
     { name: 'forget_note', description: 'Remove one of your notes by its number.', input_schema: { type: 'object', properties: { number: { type: 'integer' } }, required: ['number'] } },
@@ -357,7 +365,7 @@
     return list.map((x, i) => {
       if (!x || typeof x !== 'object') throw new Error('Each exercise must be an object');
       const ex = exOrErr(x.exercise_id);
-      if (!App.E.canDo(x.exercise_id)) throw new Error(ex.name + ' needs ' + App.E.missing(x.exercise_id).map((k) => D.EQUIP_NAME[k] || k).join(', ') + ', which their gym doesn\'t have on record. Pick another, or update_gym_equipment if they have it.');
+      if (!App.E.canDoAnywhere(x.exercise_id)) throw new Error(ex.name + ' needs ' + App.E.missing(x.exercise_id).map((k) => D.EQUIP_NAME[k] || k).join(', ') + ', which none of their gyms has on record. Pick another, or update_gym_equipment if they have it.');
       const sets = Math.round(Number(x.sets)); let lo = Math.round(Number(x.reps_min)); let hi = Math.round(Number(x.reps_max));
       if (!(sets >= 1 && sets <= 10)) throw new Error('sets must be 1 to 10 (' + ex.name + ')');
       if (!(lo >= 1 && hi >= 1 && lo <= 300 && hi <= 300)) throw new Error('reps must be 1 to 300 (' + ex.name + ')');
@@ -391,9 +399,9 @@
       const hits = Object.keys(D.EX).map((id) => {
         const ex = D.EX[id]; const hay = [id, ex.name, ex.focus, ex.pat, (ex.aka || []).join(' '), (ex.muscles || []).join(' '), (ex.muscles2 || []).join(' ')].join(' ').toLowerCase();
         return { id, ex, score: words.filter((w) => hay.includes(w)).length };
-      }).filter((x) => x.score > 0 && (!gymOnly || App.E.canDo(x.id))).sort((a, b) => b.score - a.score || a.ex.lvl - b.ex.lvl).slice(0, 15);
+      }).filter((x) => x.score > 0 && (!gymOnly || App.E.canDoAnywhere(x.id))).sort((a, b) => b.score - a.score || a.ex.lvl - b.ex.lvl).slice(0, 15);
       if (!hits.length) return 'No matches' + (gymOnly ? ' their gym can do' : '') + '.';
-      return hits.map((x) => x.id + ': ' + x.ex.name + ' (' + (x.ex.focus || x.ex.pat) + '; equipment: ' + (x.ex.eq.map((k) => D.EQUIP_NAME[k] || k).join(', ') || 'none') + (App.E.canDo(x.id) ? '' : '; NOT at their gym') + (inPlan.has(x.id) ? '; in their plan' : '') + ')').join('\n');
+      return hits.map((x) => x.id + ': ' + x.ex.name + ' (' + (x.ex.focus || x.ex.pat) + '; equipment: ' + (x.ex.eq.map((k) => D.EQUIP_NAME[k] || k).join(', ') || 'none') + (App.E.canDo(x.id) ? '' : App.E.canDoAnywhere(x.id) ? '; not at the gym they are at now, but at another of theirs' : '; NOT at any of their gyms') + (inPlan.has(x.id) ? '; in their plan' : '') + ')').join('\n');
     },
     move_session(i) {
       const sl = slotOrErr(i.session_id); if (!isDate(i.new_date)) throw new Error('new_date must be YYYY-MM-DD');
@@ -415,7 +423,7 @@
     },
     swap_exercise(i) {
       exOrErr(i.from_exercise_id); exOrErr(i.to_exercise_id);
-      if (!App.E.canDo(i.to_exercise_id)) throw new Error(exName(i.to_exercise_id) + ' needs equipment their gym doesn\'t have.');
+      if (!App.E.canDoAnywhere(i.to_exercise_id)) throw new Error(exName(i.to_exercise_id) + ' needs equipment none of their gyms has.');
       const plan = S().plan; let base = null;
       Object.keys(plan.sessions).forEach((k) => (plan.sessions[k].items || []).forEach((it) => [it.id, it.alt].filter(Boolean).forEach((b) => { if (b === i.from_exercise_id || S().swaps[b] === i.from_exercise_id) base = b; })));
       if (!base) throw new Error(exName(i.from_exercise_id) + ' isn\'t in their plan.');
@@ -490,19 +498,18 @@
       if (i.rotation != null) { if (!Array.isArray(i.rotation) || !i.rotation.length) throw new Error('rotation must list session keys'); i.rotation.forEach(sessOrErr); o.order = i.rotation.slice(); }
       if (i.start_with != null) { sessOrErr(i.start_with); o.startWith = i.start_with; }
       if (i.from_date != null) { if (!isDate(i.from_date)) throw new Error('from_date must be YYYY-MM-DD'); o.from = i.from_date; }
-      if (i.end_date != null) { if (!isDate(i.end_date) || i.end_date < today()) throw new Error('end_date must be a future date, YYYY-MM-DD'); if (App.diffDays(today(), i.end_date) > 7 * 26) throw new Error('Plans run at most 26 weeks ahead'); o.end = i.end_date; }
       if (!Object.keys(o).length) throw new Error('Nothing to change');
       App.E.reschedule(o); reshaped();
       const next = App.E.openSlots().filter((sl) => App.E.slotDate(sl) >= today()).slice(0, 6);
       changed.push('Re-planned upcoming days' + (o.days ? ' (' + o.days.slice().sort((a, b) => a - b).map((d) => DAYS[d]).join(', ') + ')' : ''));
-      return 'Re-planned. Next up: ' + next.map((sl) => App.E.slotDate(sl) + ' ' + App.E.sessionName(sl)).join('; ') + '. Plan ends ' + plan.end + '.';
+      return 'Re-planned. Next up: ' + next.map((sl) => App.E.slotDate(sl) + ' ' + App.E.sessionName(sl)).join('; ') + '.';
     },
     add_custom_exercise(i) {
       if (!isStr(i.name)) throw new Error('name is required'); exOrErr(i.based_on_exercise_id);
       const s = S(); s.customEx = s.customEx || {};
       const id = 'c_' + String(i.name).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
       if (D.EX[id] && !s.customEx[id]) throw new Error('The library already has ' + D.EX[id].name + ' [' + id + ']; use that.');
-      s.customEx[id] = { base: i.based_on_exercise_id, name: String(i.name).trim().slice(0, 60) };
+      s.customEx[id] = { base: i.based_on_exercise_id, name: App.Import.tidyName(i.name).slice(0, 60) || String(i.name).trim().slice(0, 60) };
       App.Import.register(s.customEx);
       changed.push('New exercise: ' + s.customEx[id].name);
       return 'Created ' + id + ' (' + s.customEx[id].name + '), using the equipment of ' + exName(i.based_on_exercise_id) + '.';
@@ -534,6 +541,18 @@
       const gone = list.splice(n - 1, 1)[0];
       changed.push('Forgot a note');
       return 'Forgot: ' + gone.text;
+    },
+    set_current_gym(i) {
+      if (!isStr(i.gym)) throw new Error('gym is required');
+      const n = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); const q = n(i.gym);
+      const all = App.E.gyms();
+      let g = all.find((x) => n(x.name) === q) || all.find((x) => n(x.name).indexOf(q) >= 0 || (x.short && q.indexOf(n(x.short)) >= 0));
+      if (!g) { const d = App.E.findGyms(i.gym); if (d.length === 1) g = App.E.addGym(App.E.gymFromDirectory(d[0]), false); }
+      if (!g) throw new Error('That isn\'t one of their saved gyms. Ask them to add it: tap the gym under their next session on Today, then Find gyms near me.');
+      App.E.switchGym(g.id);
+      changed.push('Training at ' + g.name);
+      const subs = App.E.gymSubs();
+      return 'Switched to ' + g.name + '.' + (subs.length ? ' Here the app stands in: ' + subs.map((x) => exName(x[1]) + ' for ' + exName(x[0])).join('; ') + '.' : ' Their whole program works here.');
     },
     show_restaurant_picks(i) {
       const own = (Array.isArray(i.picks) ? i.picks : []).map(foodItem).filter(Boolean).slice(0, 3);
@@ -775,47 +794,48 @@
       ok: list(i.also_good, 5, 'ok'), treats: list(i.treats, 3, 'treat'), tip: s2(i.tip, 160),
     };
   }
-  let lookupStream = null; let lookupCancelled = false;
-  function cancelLookup() { lookupCancelled = true; if (lookupStream) try { lookupStream.abort(); } catch (e) {} }
-  // hooks.progress({t: 'search', q} | {t: 'read', url}). Resolves to the result, or {text}, or {error}.
-  async function lookupFood(query, hooks) {
-    hooks = hooks || {}; lookupCancelled = false;
+  // ── One job on the web: Claude searches and reads pages, then answers through one tool ──
+  // Used for restaurant look-ups, finding gyms and checking a gym's equipment. Progress
+  // (each search, each page read) goes to hooks.progress; a job of the same kind replaces one
+  // still running. Resolves to the tool's result (normalised), or {text}, or {error}.
+  const jobs = {};
+  function cancelJob(kind) { const j = jobs[kind]; if (j) { j.cancelled = true; if (j.stream) try { j.stream.abort(); } catch (e) {} } }
+  async function webTask(o) {
+    const hooks = o.hooks || {}; cancelJob(o.kind); const job = { cancelled: false, stream: null }; jobs[o.kind] = job;
     const model = settings().model; let Anthropic = null; const sources = [];
     countMessage();
     try {
       const c = await getClient(); Anthropic = c.Anthropic;
-      const d = new Date(App.nowMs()); const h = d.getHours();
-      const system = [{ type: 'text', text: FOOD_RULES }, { type: 'text', text: '# The member\n\n' + foodBrief() }];
-      const messages = [{ role: 'user', content: 'Look up: ' + String(query).slice(0, 200) + '\nWhere I am: ' + whereLine() + '\nIt is ' + DOW_LONG[dow(today())] + ', ' + ((h % 12) || 12) + ':' + String(d.getMinutes()).padStart(2, '0') + (h < 12 ? ' am' : ' pm') + ' my time.' }];
-      let tools = webTools(5).concat([SHOW_FOOD]); let webRetry = 0; let fixes = 0;
-      if (tools.length === 1) messages[0].content += '\n(Web search is unavailable right now: answer from what you know and set found_menu to false.)';
+      const messages = [{ role: 'user', content: o.user }];
+      let tools = webTools(o.searches, o.fetches).concat([o.tool]); let webRetry = 0; let fixes = 0;
+      if (tools.length === 1) { if (o.needWeb) return { error: 'noweb' }; messages[0].content += '\n(Web search is unavailable right now: ' + o.noWeb + ')'; }
       for (let i = 0; i < 6; i++) {
-        if (lookupCancelled) return { error: 'cancelled' };
+        if (job.cancelled) return { error: 'cancelled' };
         const stream = c.client.beta.messages.stream(Object.assign({
-          model, max_tokens: 16000, thinking: { type: 'adaptive' }, output_config: { effort: 'medium' }, system, tools, messages,
+          model, max_tokens: 16000, thinking: { type: 'adaptive' }, output_config: { effort: o.effort || 'medium' }, system: o.system, tools, messages,
         }, fallback(model)));
-        lookupStream = stream;
+        job.stream = stream;
         stream.on('contentBlock', (b) => {
-          if (!b || b.type !== 'server_tool_use' || !b.input) return;
-          if (b.name === 'web_search' && b.input.query) hooks.progress && hooks.progress({ t: 'search', q: String(b.input.query) });
-          if (b.name === 'web_fetch' && b.input.url) hooks.progress && hooks.progress({ t: 'read', url: String(b.input.url) });
+          if (!b || b.type !== 'server_tool_use' || !b.input || !hooks.progress) return;
+          if (b.name === 'web_search' && b.input.query) hooks.progress({ t: 'search', q: String(b.input.query) });
+          if (b.name === 'web_fetch' && b.input.url) hooks.progress({ t: 'read', url: String(b.input.url) });
         });
         let msg;
         try { msg = await stream.finalMessage(); } catch (e) {
-          if (lookupCancelled) return { error: 'cancelled' };
-          if (webOff(Anthropic, e) && webRetry++ < 3) { const w = webTools(5); if (!w.length) return { error: 'noweb' }; tools = w.concat([SHOW_FOOD]); i--; continue; }
+          if (job.cancelled) return { error: 'cancelled' };
+          if (webOff(Anthropic, e) && webRetry++ < 3) { const w = webTools(o.searches, o.fetches); if (!w.length) return { error: 'noweb' }; tools = w.concat([o.tool]); i--; continue; }
           throw e;
         }
-        lookupStream = null;
-        addUsage(model, msg.usage); addSources(msg.content, sources);
+        job.stream = null;
+        addUsage(model, msg.usage); addSources(msg.content, sources, true);
         if (msg.stop_reason === 'refusal') return { text: 'That’s not something I can look up.' };
-        const use = msg.content.find((b) => b.type === 'tool_use' && b.name === 'show_food_result');
+        const use = msg.content.find((b) => b.type === 'tool_use' && b.name === o.tool.name);
         if (use) {
-          const r = msg.stop_reason === 'max_tokens' ? null : normFood(use.input);
+          const r = msg.stop_reason === 'max_tokens' ? null : o.normalize(use.input);
           if (r) { r.sources = sources; App.save(); return r; }
           if (fixes++ >= 1) break;
           messages.push({ role: 'assistant', content: msg.content });
-          messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: use.id, is_error: true, content: 'That was incomplete. Call show_food_result again with name, summary, found_menu and 1 to 3 picks, each with name, why, kcal_low, kcal_high and protein_g.' }] });
+          messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: use.id, is_error: true, content: o.fix }] });
           continue;
         }
         if (msg.stop_reason === 'pause_turn') { messages.push({ role: 'assistant', content: msg.content }); continue; }
@@ -823,17 +843,155 @@
         let k = -1; msg.content.forEach((b, j) => { if (b.type !== 'text' && b.type !== 'thinking') k = j; });
         const text = msg.content.slice(k + 1).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
         App.save();
-        return { text: text || 'I couldn’t find that one. Try the full name and the area.', sources };
+        return { text: text || o.empty, sources };
       }
       App.save();
-      return { text: 'I couldn’t pull that together. Try again, or add the area to the name.', sources };
+      return { text: o.giveUp, sources };
     } catch (e) {
-      lookupStream = null; App.save();
-      if (lookupCancelled) return { error: 'cancelled' };
-      if (window.console) console.warn('Food lookup', e);
+      job.stream = null; App.save();
+      if (job.cancelled) return { error: 'cancelled' };
+      if (window.console) console.warn('Claude web job', o.kind, e);
       return { error: errorText(Anthropic, e) };
-    }
+    } finally { if (jobs[o.kind] === job) delete jobs[o.kind]; }
   }
+  // A restaurant or dish, anywhere.
+  function lookupFood(query, hooks) {
+    const d = new Date(App.nowMs()); const h = d.getHours();
+    return webTask({
+      kind: 'food', hooks, tool: SHOW_FOOD, searches: 5, fetches: 3, normalize: normFood,
+      system: [{ type: 'text', text: FOOD_RULES }, { type: 'text', text: '# The member\n\n' + foodBrief() }],
+      user: 'Look up: ' + String(query).slice(0, 200) + '\nWhere I am: ' + whereLine() + '\nIt is ' + DOW_LONG[dow(today())] + ', ' + ((h % 12) || 12) + ':' + String(d.getMinutes()).padStart(2, '0') + (h < 12 ? ' am' : ' pm') + ' my time.',
+      noWeb: 'answer from what you know and set found_menu to false.',
+      fix: 'That was incomplete. Call show_food_result again with name, summary, found_menu and 1 to 3 picks, each with name, why, kcal_low, kcal_high and protein_g.',
+      empty: 'I couldn’t find that one. Try the full name and the area.', giveUp: 'I couldn’t pull that together. Try again, or add the area to the name.',
+    });
+  }
+  function cancelLookup() { cancelJob('food'); }
+
+  // ── Gyms: find them near you, and check what one has ─────────────────────
+  const CHAIN_KEYS = Object.keys(D.GYMDB.CHAINS);
+  const GYM_FIND_RULES = [
+    'You help a member of Spotter, a training app, find gyms to train at, wherever they are.',
+    '',
+    'Do this:',
+    '- Search the web for gyms near where they are, or matching what they typed. Find every Anytime Fitness club nearby first, then other gyms with a proper weights floor (chains like Snap Fitness, Plus Fitness, Fitness First, Jetts, Crunch, World Gym, and good independent gyms). Leave out class-only studios (F45, Orangetheory, yoga, pilates) unless they asked for one.',
+    '- Use each club\'s own page for its exact address, opening hours and link, and estimate how far it is from them.',
+    '- If they typed a gym\'s name, find that exact club first, then a few nearby alternatives.',
+    '- Then call show_gyms once, with up to 8 gyms: Anytime Fitness clubs first (closest first), then the others (closest first).',
+    '',
+    'Style: Australian English, short plain notes.',
+  ].join('\n');
+  const SHOW_GYMS = {
+    name: 'show_gyms', eager_input_streaming: true,
+    description: 'Show the gyms you found. Call once, at the end.',
+    input_schema: { type: 'object', properties: {
+      area: str('The suburb or area you searched around'),
+      gyms: { type: 'array', description: 'Up to 8 gyms: Anytime Fitness clubs first (closest first), then the others (closest first)', items: { type: 'object', properties: {
+        name: str('Full club name, e.g. "Anytime Fitness Kellyville"'),
+        chain: { type: 'string', enum: CHAIN_KEYS.concat(['other']), description: 'The chain, or other' },
+        address: str('Street address'), suburb: str('Suburb or area'),
+        distance_km: { type: 'number', description: 'Roughly how far it is from them' },
+        lat: { type: 'number' }, lng: { type: 'number' },
+        hours: str('e.g. "24/7" or "5am to 10pm"'), url: str('The club\'s own page'),
+        note: str('One short line that helps choose, e.g. "Big free-weights area, two squat racks"'),
+      }, required: ['name', 'suburb'] } },
+    }, required: ['gyms'] },
+  };
+  // Where to look for gyms: their location if they've shared it (with the suburb we know near
+  // it), else the city they're in.
+  function gymWhere() {
+    const w = where();
+    if (w.kind === 'gps') { const sub = App.E.nearestSuburb([w.lat, w.lon]); return 'at about ' + w.lat.toFixed(3) + ', ' + w.lon.toFixed(3) + ' (their phone\'s location' + (sub ? ', in or near ' + sub : '') + ')'; }
+    return whereLine();
+  }
+  const httpUrl = (u) => (typeof u === 'string' && /^https?:\/\/[^\s]+$/i.test(u.trim()) ? u.trim().slice(0, 300) : '');
+  function normGyms(i) {
+    if (!i || !Array.isArray(i.gyms)) return null;
+    const s2 = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+    const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
+    const w = where(); const pt = w.kind === 'gps' ? [w.lat, w.lon] : null;
+    const gyms = i.gyms.map((g) => {
+      if (!g || !s2(g.name, 80)) return null;
+      const lat = num(g.lat); const lng = num(g.lng); const okPt = lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+      const chain = CHAIN_KEYS.includes(g.chain) ? g.chain : App.E.chainFromName(g.name);
+      const km = pt && okPt ? App.E.km(pt, [lat, lng]) : num(g.distance_km);
+      return { name: s2(g.name, 80), chain, address: s2(g.address, 140), suburb: s2(g.suburb, 60), km: km != null && km >= 0 && km < 500 ? Math.round(km * 10) / 10 : null, lat: okPt ? lat : undefined, lng: okPt ? lng : undefined, hours: s2(g.hours, 80), url: httpUrl(g.url), note: s2(g.note, 140) };
+    }).filter(Boolean);
+    if (!gyms.length) return null;
+    const af = (g) => (g.chain === 'anytime' ? 0 : 1);
+    gyms.sort((a, b) => af(a) - af(b) || (a.km == null) - (b.km == null) || (a.km || 0) - (b.km || 0));
+    return { area: s2(i.area, 60), gyms: gyms.slice(0, 8) };
+  }
+  function findGyms(q, hooks) {
+    return webTask({
+      kind: 'gyms', hooks, tool: SHOW_GYMS, searches: 5, fetches: 2, normalize: normGyms, needWeb: true,
+      system: [{ type: 'text', text: GYM_FIND_RULES }],
+      user: (q ? 'Look for: ' + String(q).slice(0, 120) + ' (a gym\'s name, or an area to find gyms in)\n' : 'Find gyms near me.\n') + 'Where I am: ' + gymWhere(),
+      fix: 'That was incomplete. Call show_gyms again with a gyms list, each with at least name and suburb.',
+      empty: 'I couldn’t find gyms there. Try typing the suburb.', giveUp: 'I couldn’t pull the gyms together. Try again, or type the suburb.',
+    });
+  }
+  const EQ_KEYS = Object.keys(D.EQUIP_NAME);
+  const GYM_RESEARCH_RULES = [
+    'You research one gym for a member of Spotter, a training app, so they know before they go whether it has the equipment for their sessions.',
+    '',
+    'Do this:',
+    '- Find this exact club (the right branch) and read its own page: equipment lists, facilities, photo captions, virtual tours, new-equipment posts. Also look at its social posts, reviews and gym-finder listings that describe the equipment. A chain\'s standard fit-out is only a starting point: clubs differ, so prefer what this club itself shows.',
+    '- Give every equipment key you have evidence about a status: yes (you saw it at this club), likely (strongly suggested, like the chain\'s standard fit-out for a club this size, or an unclear mention), no (sources clearly say this club does not have it). Leave out keys you know nothing about.',
+    '- Check the equipment their program needs first (listed below), then anything else you can find.',
+    '- Name specific machines and brands when you see them, like "Hammer Strength Iso-Lateral Row".',
+    '- Be honest: confidence is low when you mostly relied on the chain\'s usual fit-out.',
+    '- Keep it efficient: usually 3 to 6 searches and 1 to 3 pages read. Then call save_gym_equipment once.',
+    '',
+    'Style: Australian English, short plain notes.',
+  ].join('\n');
+  const SAVE_GYM = {
+    name: 'save_gym_equipment', eager_input_streaming: true,
+    description: 'Save what you found out about this gym. Call once, at the end.',
+    input_schema: { type: 'object', properties: {
+      found: { type: 'boolean', description: 'true if you found this exact club' },
+      name: str('The club\'s name as it calls itself'), address: str('Street address'), hours: str('Opening and staffed hours'), url: str('The club\'s own page'),
+      summary: str('One or two short sentences for a lifter: size and what stands out'),
+      confidence: { type: 'string', enum: ['high', 'medium', 'low'], description: 'How sure you are about the equipment overall' },
+      equipment: { type: 'array', description: 'Every equipment key you have evidence about', items: { type: 'object', properties: {
+        key: { type: 'string', enum: EQ_KEYS }, status: { type: 'string', enum: ['yes', 'likely', 'no'] }, evidence: str('Where you saw it, under 12 words, e.g. "Club page equipment list"'),
+      }, required: ['key', 'status'] } },
+      machines: { type: 'array', description: 'Specific machines or brands you found', items: { type: 'object', properties: { name: str('e.g. "Hammer Strength Iso-Lateral Row"'), key: { type: 'string', enum: EQ_KEYS.concat(['other']) }, note: str('Optional, short') }, required: ['name'] } },
+      notes: str('Anything else useful for training there: how many racks, busy times, staffed hours, parking'),
+    }, required: ['found', 'name', 'summary', 'confidence', 'equipment'] },
+  };
+  function normResearch(i) {
+    if (!i || typeof i !== 'object' || !Array.isArray(i.equipment)) return null;
+    const s2 = (v, n) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+    const seen = new Set();
+    const equipment = i.equipment.filter((x) => x && EQ_KEYS.includes(x.key) && ['yes', 'likely', 'no'].includes(x.status) && !seen.has(x.key) && seen.add(x.key)).map((x) => ({ key: x.key, status: x.status, evidence: s2(x.evidence, 90) }));
+    const machines = (Array.isArray(i.machines) ? i.machines : []).filter((m) => m && s2(m.name, 80)).slice(0, 24).map((m) => ({ name: s2(m.name, 80), key: EQ_KEYS.includes(m.key) ? m.key : '', note: s2(m.note, 90) }));
+    return { found: i.found === true, name: s2(i.name, 80), address: s2(i.address, 140), hours: s2(i.hours, 120), url: httpUrl(i.url), summary: s2(i.summary, 280), confidence: ['high', 'medium', 'low'].includes(i.confidence) ? i.confidence : 'low', equipment, machines, notes: s2(i.notes, 300) };
+  }
+  // What their program needs from a gym: each equipment key, and the exercises that need it.
+  function programNeeds() {
+    const E = App.E; const plan = S().plan; const need = {}; if (!plan) return need;
+    E.sessionKeys().forEach((key) => E.exercisesFor(key, 1).forEach((e) => { const id = e.planned || e.id; ((D.EX[id] || {}).eq || []).forEach((t) => { (need[t] = need[t] || new Set()).add(D.EX[id].name); }); }));
+    return need;
+  }
+  function researchGym(g, hooks) {
+    const need = programNeeds();
+    const ch = D.GYMDB.CHAINS[g.chain];
+    const user = [
+      'Gym: ' + g.name + (g.suburb ? ', ' + g.suburb : '') + (g.address ? '\nAddress: ' + g.address : '') + (g.url ? '\nClub page: ' + g.url : '') + (ch ? '\nChain: ' + ch.name : ''),
+      '',
+      'Their program needs (equipment key: exercises):',
+      Object.keys(need).map((t) => '- ' + t + ' (' + D.EQUIP_NAME[t] + '): ' + Array.from(need[t]).join(', ')).join('\n') || '- (nothing special)',
+      '',
+      'All equipment keys: ' + EQ_KEYS.map((t) => t + ' = ' + D.EQUIP_NAME[t]).join('; '),
+    ].join('\n');
+    return webTask({
+      kind: 'gym:' + g.id, hooks, tool: SAVE_GYM, searches: 6, fetches: 3, normalize: normResearch, needWeb: true, system: [{ type: 'text', text: GYM_RESEARCH_RULES }], user,
+      fix: 'That was incomplete. Call save_gym_equipment again with found, name, summary, confidence and the equipment list (key and status for each).',
+      empty: 'I couldn’t find enough about that gym.', giveUp: 'I couldn’t finish checking that gym. Try again in a moment.',
+    });
+  }
+  function cancelGymJobs() { Object.keys(jobs).filter((k) => k === 'gyms' || k.indexOf('gym:') === 0).forEach(cancelJob); }
 
   // Check a key works with one tiny request.
   async function test() {
@@ -847,5 +1005,5 @@
 
   function notes() { return S().coachNotes || []; }
   function forgetNote(i) { const l = S().coachNotes || []; if (i >= 0 && i < l.length) { l.splice(i, 1); App.save(); } }
-  App.AI = { undo, notes, forgetNote, ready, getKey, setKey, settings, MODELS, modelName, monthUsage, reply, readMenu, test, snapshot, loadSDK, lookupFood, cancelLookup, where, setWhere, whereLine, tz, tzCity, foodItem, SEARCH_USD };
+  App.AI = { undo, notes, forgetNote, ready, getKey, setKey, settings, MODELS, modelName, monthUsage, reply, readMenu, test, snapshot, loadSDK, lookupFood, cancelLookup, where, setWhere, whereLine, tz, tzCity, foodItem, SEARCH_USD, findGyms, researchGym, cancelGymJobs, programNeeds };
 })();
