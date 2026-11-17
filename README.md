@@ -91,6 +91,30 @@ whose jump you set per machine (0.25 kg to 5 kg). Beat your best, even by 0.25 k
 and a **personal record** lands with a stamp, a burst of light and the gain. Records show in
 the summary, the coach's debrief, Progress and each exercise's page.
 
+### The coach, powered by Claude
+
+Out of the box the coach is a script: it checks in, and it understands a handful of phrases
+("I'm sore", "can't make it", a restaurant name). Add your own Anthropic API key in
+*Profile → Coach → Claude coach* and it becomes a real trainer:
+
+- **It knows your training.** Every message carries your program, the next two weeks of
+  sessions, your last ten sessions set by set, a line for every exercise you've logged (last
+  session, best, estimated one-rep max and its trend over eight weeks), your gym's
+  equipment and the last fortnight of eating. For deeper questions it pulls a lift's full
+  history.
+- **It does things.** It can move, skip, ease or shorten a session, swap an exercise in
+  your plan (only for moves your gym can do), set the weight and reps you'll see next time,
+  log food and put a restaurant's picks on screen. Each change shows as a line in the chat.
+- **It reads menu photos** on the live app too, not just in the claude.ai preview.
+- **Replies stream in** like a text, with quick-reply chips when they help.
+
+It runs on Claude Opus 5.5 by default (Sonnet 5.5 and Haiku 5.5 are options), with adaptive
+thinking at medium effort, prompt caching and Anthropic's server-side fallback switched on.
+Settings show this month's messages and roughly what they've cost. The key is stored only on
+the phone, in its own storage slot, and is never part of a backup code; requests go straight
+from the phone to Anthropic. That suits one person's own phone. Sharing the app with
+others needs a small server to hold the key instead.
+
 ### Eating out
 
 Type a place on the Eat tab, in search or to the coach, and the menu comes up with three picks,
@@ -126,7 +150,7 @@ streaks, halfway). Rewards set by someone close to you unlock at weeks 2, 4 and 
 - **A real map.** The gym map is a schematic of real distances and directions, so it works offline.
 - **Machine photos and their spot on the floor**, once a gym is mapped. Until then each
   exercise shows a drawing, and you can add your own photo.
-- **Menu photos outside the preview** need a vision model behind the app.
+- **The Claude coach** needs your own API key (see above); without one it's the script.
 - **A live human coach**, notifications, accounts and syncing between phones.
 
 ## Open it on an iPhone
@@ -191,6 +215,8 @@ spotter/
                          sheets, sounds and haptics
   js/engine.js           Your gym's equipment, the plan builder, weight suggestions,
                          personal records, weekly goals, coach check-ins, search
+  js/ai.js               The Claude coach: what it knows, its tools, streaming replies,
+                         menu photos, the key and what it costs
   js/coach.js            The coach's conversations, the actions replies can take, and
                          Claude in the preview (chat and menu photos)
   js/onboarding.js       Onboarding, the gym finder and map, the equipment check, the reveal
@@ -198,6 +224,7 @@ spotter/
   js/session.js          The guided gym session, supersets and record celebrations
   js/import.js           Bringing history and a program over from Iron Log
   js/app.js              Boot, migration, navigation, awards and actions
+  vendor/                The Anthropic SDK (1.4.0) bundled for the browser, and its licence
   manifest.webmanifest   Home Screen app details
   service-worker.js      Offline support (bump CACHE_VERSION after changes)
 tools/

@@ -1,5 +1,5 @@
 /* Spotter — offline support. Bump CACHE_VERSION after changing any file so installed copies update. */
-const CACHE_VERSION = 'spotter-v3.2';
+const CACHE_VERSION = 'spotter-v3.3';
 const SHELL = [
   './',
   './index.html',
@@ -10,12 +10,14 @@ const SHELL = [
   './js/gyms.js',
   './js/core.js',
   './js/engine.js',
+  './js/ai.js',
   './js/coach.js',
   './js/onboarding.js',
   './js/views.js',
   './js/session.js',
   './js/import.js',
   './js/app.js',
+  './vendor/anthropic-sdk-1.4.0.js',
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',

@@ -19,7 +19,9 @@
       window.claude.use('sample').then((fn) => { if (fn) { aiSample = fn; if (App.Views && App.Views.refreshCam) App.Views.refreshCam(); } }).catch(() => {});
     } catch (e) {}
   }
-  function aiReady() { return !!aiSample && !aiOff; }
+  // Claude with the member's own key (anywhere), or the claude.ai preview's built-in Claude
+  function keyed() { return !!(App.AI && App.AI.ready()); }
+  function aiReady() { return keyed() || (!!aiSample && !aiOff); }
   function setSession(ctx) { session = ctx; }
 
   // ── Context the conversations read from ───────────────────────────────────
@@ -151,7 +153,9 @@
     dinners_q: () => ({ text: 'Your five dinners for this week are picked from the food you like.', card: { type: 'dinners' }, replies: [a('See them all', 'dinners'), a('Shuffle them', 'shuffle')] }),
     menu_why: () => ({ text: 'They’re the most protein with the lightest sauces, so you leave full without feeling heavy. The “ask for” tweaks make them lighter still, and there’s nothing to count.', replies: [] }),
     locked: () => ({ text: 'Locked in. Enjoy it. I’ll ask how it went tonight.', replies: [] }),
-    fallback: () => ({ text: 'I’m not sure I can help with that one yet. Here’s what I can sort out right now:', replies: [r('Plan a meal out', 'eat_where'), r('Move a session', 'cant_make'), r('I’m sore', 'sore_where')] }),
+    fallback: () => (!window.claude && !keyed()
+      ? { text: 'I’m running on a script right now, so I only understand a few things. Switch on Claude and I can answer anything about your training, read menus and change your plan for you.', replies: [a('Switch on Claude', 'aiSetup'), r('Move a session', 'cant_make'), r('I’m sore', 'sore_where')] }
+      : { text: 'I’m not sure I can help with that one yet. Here’s what I can sort out right now:', replies: [r('Plan a meal out', 'eat_where'), r('Move a session', 'cant_make'), r('I’m sore', 'sore_where')] }),
   };
   function target(v) {
     const parts = String(v).split('|'); const c = C();
@@ -187,6 +191,7 @@
     skipEx: () => { App.Session.skipCurrent(); note('Exercise skipped'); return ['ok']; },
     openMenu: (v) => { const [name, cu] = String(v).split('|'); App.Views.menuSheet(name, cu); },
     cuisine: (v) => { const [name, cu] = String(v).split('|'); later(() => restaurantPicks(name, cu)); return null; },
+    aiSetup: () => { App.ACT.openCoachAI(); },
     lock: (v) => { const [name, cu] = String(v).split('|'); App.lockMeal(name, cu, true); return ['locked']; },
   };
 
@@ -285,6 +290,12 @@
     push({ from: 'me', text });
     App.onCoachMessage && App.onCoachMessage(null);
     const q = text.toLowerCase().replace(/[‘’]/g, "'");
+    // with Claude switched on it answers everything; only an emergency gets the instant script
+    if (keyed()) {
+      if (INTENTS[0][1].test(q)) { delete S().chatExpect; return respond('dizzy'); }
+      delete S().chatExpect;
+      return askClaude();
+    }
     // safety first, whatever we were talking about
     const urgent = INTENTS.slice(0, 3).find(([, re]) => re.test(q));
     if (urgent) { delete S().chatExpect; return respond(urgent[0]); }
@@ -304,6 +315,25 @@
     respond('fallback');
   }
   function later(fn) { busy = true; App.onCoachTyping && App.onCoachTyping(true); setTimeout(() => { busy = false; App.onCoachTyping && App.onCoachTyping(false); fn(); App.sound('message'); App.haptic(); }, App.reduceMotion() ? 150 : 900); }
+
+  // ── Claude with your own key: streams in, and can change the plan ─────────
+  async function askClaude() {
+    busy = true; App.onCoachTyping && App.onCoachTyping(true);
+    let m = null; let raf = 0;
+    const show = (text) => {
+      if (!m) { App.onCoachTyping && App.onCoachTyping(false); m = push({ from: 'coach', text, replies: [], live: true }); App.onCoachMessage && App.onCoachMessage(m); return; }
+      m.text = text; if (!raf) raf = requestAnimationFrame(() => { raf = 0; App.Views.updateBubble && App.Views.updateBubble(m); });
+    };
+    const res = await App.AI.reply({ text: (t) => { if (t.trim()) show(t); } });
+    busy = false; App.onCoachTyping && App.onCoachTyping(false);
+    const text = res.text || (res.error ? '' : res.changed.length ? 'Done.' : '');
+    if (m) { m.text = text || (res.error || '…'); m.replies = res.replies || []; m.card = res.card || null; delete m.live; if (res.error && text) m.text += '\n\n' + res.error; }
+    else if (text || res.error) m = push({ from: 'coach', text: text || res.error, replies: res.replies || [], card: res.card || null, urgent: false });
+    res.changed.forEach((c) => note(c));
+    App.save();
+    if (res.changed.length && App.tab !== 'coach') App.render();
+    App.onCoachMessage && App.onCoachMessage(m); App.sound('message'); App.haptic();
+  }
 
   // ── Claude, in the preview: same voice, replies with follow-up options ────
   function profileText() {
@@ -388,6 +418,7 @@
   // ── Menu photos (claude.ai preview): picks from what they actually serve ──
   let imgOk = null;
   function canReadMenus() {
+    if (keyed()) return Promise.resolve(true);
     if (!aiReady()) return Promise.resolve(false);
     if (imgOk != null) return Promise.resolve(imgOk);
     return Promise.resolve().then(() => aiSample.limits()).then((l) => (imgOk = !!(l && l.images))).catch(() => (imgOk = false));
@@ -413,7 +444,7 @@
       'If the image is not a readable menu, reply {"picks":[]}.',
     ].join('\n');
     const str = (x, n) => (typeof x === 'string' ? x.trim().slice(0, n) : '');
-    return aiSample.json(prompt, { images: [file], modelTier: 'quick' }).then((out) => ({
+    return (keyed() ? App.AI.readMenu(file, prompt) : aiSample.json(prompt, { images: [file], modelTier: 'quick' })).then((out) => ({
       place: str(out && out.place, 60), cuisine: out && D.MENUS[out.cuisine] ? out.cuisine : '',
       picks: (out && Array.isArray(out.picks) ? out.picks : []).filter((x) => x && str(x.n, 80)).slice(0, 3).map((x) => ({ n: str(x.n, 80), t: 'pick', why: str(x.why, 120), mods: (Array.isArray(x.mods) ? x.mods : []).map((m) => str(m, 40)).filter(Boolean).slice(0, 3) })),
       treats: (out && Array.isArray(out.treats) ? out.treats : []).map((x) => str(x, 80)).filter(Boolean).slice(0, 3).map((n) => ({ n, t: 'treat' })),
@@ -452,5 +483,6 @@
 
   // A session starting moves the conversation on: old reply chips go.
   function clear() { clearReplies(); delete S().chatExpect; App.save(); }
-  App.Coach = { initAI, aiReady, setSession, checkIns, due, post, say, note, clear, tap, send, topic, act, expecting, unread, markRead, latest, isBusy, restaurant, canReadMenus, readMenu, photoIn };
+  function sessionContext() { return session; }
+  App.Coach = { initAI, aiReady, keyed, sessionContext, setSession, checkIns, due, post, say, note, clear, tap, send, topic, act, expecting, unread, markRead, latest, isBusy, restaurant, canReadMenus, readMenu, photoIn };
 })();

@@ -282,7 +282,7 @@
 
   // ── Coach ─────────────────────────────────────────────────────────────────
   function coachView() {
-    return '<div class="coachview"><header class="coachhead">' + avatarCoach(true) + '<div class="coachhead__main"><div class="coachhead__name">Coach</div><div class="coachhead__sub">Your trainer</div></div>' +
+    return '<div class="coachview"><header class="coachhead">' + avatarCoach(true) + '<div class="coachhead__main"><div class="coachhead__name">Coach</div>' + (App.AI.ready() ? '<button class="coachhead__sub" data-act="openCoachAI">Your trainer · ' + esc(App.AI.modelName()) + '</button>' : window.claude ? '<div class="coachhead__sub">Your trainer</div>' : '<button class="coachhead__sub coachhead__sub--off" data-act="openCoachAI">Scripted replies · Turn on Claude</button>') + '</div>' +
       '<button class="avatar" data-act="openProfile" aria-label="Profile and settings">' + esc((firstName() || '?').charAt(0).toUpperCase()) + '</button></header>' +
       '<div class="thread" data-coach-thread aria-live="polite">' + threadHtml() + '</div></div>' +
       '<div class="dock"><div class="dock__inner">' + dockHtml('tab') + '</div></div>';
@@ -299,7 +299,7 @@
       if (m.from === 'note') h += '<div class="note' + inst + '">' + icon('check') + esc(m.text) + '</div>';
       else if (m.from === 'me' && m.img) h += '<div class="bubble bubble--me bubble--img' + inst + '"><img src="' + m.img + '" alt="' + esc(m.text || 'Photo') + '"></div>';
       else if (m.from === 'me') h += '<div class="bubble bubble--me' + inst + '">' + esc(m.text) + '</div>';
-      else { h += '<div class="bubble bubble--coach' + (m.urgent ? ' bubble--urgent' : '') + inst + '">' + esc(m.text) + '</div>'; if (m.card) h += msgCard(m.card, inst); }
+      else { h += '<div class="bubble bubble--coach' + (m.urgent ? ' bubble--urgent' : '') + (m.live ? ' is-live' : '') + inst + '" data-mid="' + esc(m.id) + '">' + esc(m.text) + '</div>'; if (m.card) h += msgCard(m.card, inst); }
     });
     if (coachTyping) h += '<div class="typing" aria-label="Coach is typing"><i></i><i></i><i></i></div>';
     return h;
@@ -363,6 +363,12 @@
     const dot = App.$('.sx__coach'); if (dot) dot.innerHTML = icon('coach') + (App.Coach.unread() && !sheetThread ? '<span class="dot-new"></span>' : '');
   }
   function setTyping(on) { coachTyping = on; refreshCoach(); }
+  // A reply streaming in: just its text changes, and the thread follows it down.
+  function updateBubble(m) {
+    App.$$('.bubble[data-mid="' + m.id + '"]').forEach((el) => { el.textContent = m.text; });
+    const sb = App.$('.sheet [data-coach-thread]'); const b = sb && sb.closest('.sheet__body'); if (b) b.scrollTop = b.scrollHeight;
+    if (App.tab === 'coach' && App.$('.tabview[data-tab="coach"]') && !App.ob.active) window.scrollTo(0, document.documentElement.scrollHeight);
+  }
   function coachSheet() {
     const L = App.sheet('Coach', '<div class="thread thread--sheet" data-coach-thread aria-live="polite">' + threadHtml() + '</div>', { tall: true, foot: dockHtml('session') });
     const f = L.querySelector('.sheet__foot'); if (f) f.classList.add('sheet__foot--dock');
@@ -704,6 +710,7 @@
       '<div class="sec"><div class="sec__label">Goal and rewards</div>' + group([goalCell(), cell({ act: 'openRewards', tile: ['gift', 'bg-gold'], title: 'Rewards' }), cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: Object.keys(s.awards).length + ' of ' + D.AWARDS.length })], true) + '</div>' +
       '<div class="sec"><div class="sec__label">Health</div>' + group([cell({ title: 'Asthma', value: p.health.asthma ? 'Yes' : 'No' }), cell({ title: 'Health check', value: p.health.flag ? (p.health.cleared ? 'Cleared by GP' : 'See your GP first') : 'All clear' })]) +
         (p.health.asthma ? '<p class="fn">If your chest tightens: stop and use your reliever as your asthma action plan says. If it comes back a second time, stop for the day. In an emergency, call 000.</p>' : '') + '</div>' +
+      (window.claude ? '' : '<div class="sec"><div class="sec__label">Coach</div>' + group([cell({ act: 'openCoachAI', tile: ['coach', 'bg-purple'], title: 'Claude coach', sub: App.AI.ready() ? 'On · ' + esc(App.AI.modelName()) : 'Off. The coach is a script until you add a key', value: App.AI.ready() ? '' : 'Set up' })], true) + '</div>') +
       '<div class="sec"><div class="sec__label">Settings</div>' + group([
         '<div class="cell"><span class="cell__main"><span class="cell__title">Sounds</span></span><button class="switch' + (s.settings.sound ? ' is-on' : '') + '" data-act="toggleSound" role="switch" aria-checked="' + s.settings.sound + '" aria-label="Sounds"></button></div>',
         '<div class="cell" style="display:grid;gap:10px"><span class="cell__title">Appearance</span><div class="seg">' + [['system', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']].map((o) => '<button class="seg__btn' + (theme === o[0] ? ' is-on' : '') + '" data-act="setTheme" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div></div>',
@@ -718,6 +725,32 @@
       '<p class="fn">Spotter prototype. General fitness and healthy-eating guidance only; it doesn’t replace advice from your GP. Machine photos, notifications and a real coach on call come with the full app.</p>';
     App.sheet('Profile', body);
   }
+  // ── Claude coach settings ─────────────────────────────────────────────────
+  function coachAIBody() {
+    const on = App.AI.ready(); const st = App.AI.settings(); const k = App.AI.getKey(); const u = App.AI.monthUsage();
+    const models = Object.keys(App.AI.MODELS).map((id) => '<button class="seg__btn' + (st.model === id ? ' is-on' : '') + '" data-act="aiModel" data-v="' + id + '">' + esc(App.AI.MODELS[id].name.replace('Claude ', '')) + '</button>').join('');
+    let h = '<div class="sheet__lead"><h1 class="sheet__h1">' + (on ? 'Your coach runs on Claude' : 'Make your coach smart') + '</h1><p class="lead">' +
+      (on ? 'It reads your whole training history, answers like a trainer who knows you, reads menu photos, and changes your plan when you ask.' : 'Right now the coach is a script: it only understands a few phrases. With Claude it reads your whole history, answers anything, reads menu photos and can change your plan when you ask.') + '</p></div>';
+    if (!on) {
+      h += '<div class="sec"><div class="sec__label">Get a key (5 minutes, once)</div><div class="card"><ol class="steps">' +
+        '<li>On this phone, open console.anthropic.com and sign up or sign in</li>' +
+        '<li>Under Billing, add a little credit. US$5 covers a lot of chats</li>' +
+        '<li>Under API keys, tap Create key, name it Spotter, and copy it</li>' +
+        '<li>Paste it below</li></ol></div></div>' +
+        '<div class="sec"><label class="sec__label" for="aiKey">Your Claude API key</label><div class="inrow"><input id="aiKey" class="input" type="password" placeholder="sk-ant-…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>' +
+        '<div><button class="btn btn--accent btn--block" data-act="aiSaveKey">Save and test</button></div></div>';
+    } else {
+      h += group([
+        cell({ tile: ['check', 'bg-green'], title: 'Connected', sub: 'Key ending ' + esc(k.slice(-4)) }),
+        cell({ tile: ['history', 'bg-ink'], title: 'This month', sub: u.msgs + ' ' + App.plural(u.msgs, 'message') + ' · about US$' + u.usd.toFixed(2) }),
+      ], true) +
+        '<div class="sec"><div class="sec__label">Model</div><div class="seg">' + models + '</div><p class="fn">' + esc(App.AI.MODELS[st.model].note) + '</p></div>' +
+        '<div class="inrow" style="flex-wrap:wrap"><button class="btn btn--sm btn--tinted" data-act="aiTest">Test it</button><button class="btn btn--sm btn--danger" data-act="aiForgetKey">Remove key</button></div>';
+    }
+    h += '<p class="fn">The key stays on this phone, in Spotter’s own storage, and isn’t included in backup codes. Messages go straight from your phone to Anthropic. Anyone using this phone unlocked could use it, so set a monthly spend limit in the Anthropic console.</p>';
+    return h;
+  }
+  function coachAISheet() { App.sheet('Claude coach', coachAIBody()); }
   function sinceDate(d) { return fmtDate(d, 'dm') + (d.slice(0, 4) !== today().slice(0, 4) ? ' ' + d.slice(0, 4) : ''); }
   function installSheet() {
     App.sheet('Add to Home Screen', '<p class="lead">Spotter works best as an app on your iPhone: full screen, offline, and your iPhone keeps your progress safe.</p>' +
@@ -744,8 +777,27 @@
   // ── After-render touches: progress bars grow in ────────────────────────────
   function animateBars() { requestAnimationFrame(() => requestAnimationFrame(() => App.$$('[data-w]').forEach((b) => { b.style.width = b.dataset.w + '%'; }))); }
 
+  Object.assign(App.ACT, {
+    openCoachAI() { coachAISheet(); },
+    aiSaveKey(el) {
+      const inp = App.$('#aiKey'); const k = ((inp || {}).value || '').trim();
+      if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(k)) { App.toast('That doesn’t look like a Claude key. It starts with sk-ant-', 'alert'); return; }
+      App.AI.setKey(k); el.disabled = true; el.textContent = 'Testing…';
+      App.AI.test().then((r) => {
+        if (!r.ok) { App.AI.setKey(''); el.disabled = false; el.textContent = 'Save and test'; App.toast(r.text, 'alert'); return; }
+        App.replaceSheet(coachAIBody()); App.render(); App.sound('set'); App.haptic('success'); App.toast('Claude is on. Ask your coach anything', 'check');
+      }).catch(() => { App.AI.setKey(''); el.disabled = false; el.textContent = 'Save and test'; App.toast('Couldn’t load Claude. Check you’re online', 'alert'); });
+    },
+    aiModel(el) { App.AI.settings().model = el.dataset.v; App.save(); App.replaceSheet(coachAIBody()); App.haptic(); },
+    aiTest(el) {
+      el.disabled = true; el.textContent = 'Testing…';
+      App.AI.test().then((r) => { App.toast(r.ok ? 'Working. Claude answered' : r.text, r.ok ? 'check' : 'alert'); App.replaceSheet(coachAIBody()); })
+        .catch(() => { el.disabled = false; el.textContent = 'Test it'; App.toast('Couldn’t load Claude. Check you’re online', 'alert'); });
+    },
+    aiForgetKey() { App.AI.setKey(''); App.replaceSheet(coachAIBody()); App.render(); App.toast('Key removed from this phone'); },
+  });
   App.Views = {
-    shell, coachGlyph, discHtml, refreshCoach, refreshCam, setTyping, refreshBadge, animateBars,
+    shell, coachGlyph, discHtml, refreshCoach, refreshCam, setTyping, updateBubble, refreshBadge, animateBars,
     previewSheet, sessionOptions, menuScanning, placeMenu, weekSheet, goalSheet, rewardsSheet, progressSheet, awardsSheet, awardInfo,
     librarySheet, renderLib, lib, exerciseSheet, swapInSheet, gymSheet, kitSheet, packSheet, menuSheet, cuisinePickSheet, dinnersSheet, mealSheet, momentSheet,
     profileSheet, installSheet, coachSheet, celebrate, openSearch, closeSearch, renderSearch, isSearchOpen: () => !!searchEl,
