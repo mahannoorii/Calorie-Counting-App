@@ -99,7 +99,7 @@
     why_out: () => ({ text: 'Next time, message me where you’re going before you leave. I’ll have your order picked before you sit down.', replies: [r('Got it', 'ok')] }),
     why_takeaway: () => ({ text: 'Takeaway’s fine when it’s planned. Next time, tell me the place and I’ll pick the order.', replies: [r('Got it', 'ok')] }),
     why_sweets: () => ({ text: 'Keep the ones you love and skip the ones that are just there. A planned treat on the weekend beats a surprise one on Tuesday.', replies: [r('Makes sense', 'ok')] }),
-    why_busy: () => ({ text: 'Busy days need a backup. Your five dinners for the week are already picked, so there’s always a plan.', replies: [a('Show me', 'dinners'), r('Later', 'ok')] }),
+    why_busy: () => ({ text: 'Busy days need a backup. Keep one easy, high-protein meal you can make in ten minutes, so there’s always a plan.', replies: [r('Good idea', 'ok')] }),
 
     // Weekend
     friday: () => ({ text: 'Anything on this weekend I should plan around?', replies: [r('Eating out', 'eat_where'), r('Family event', 'event_day'), r('Takeaway night', 'eat_where'), r('A quiet one', 'quiet')], mark: 'weekend' }),
@@ -118,7 +118,7 @@
     sun_sore: () => ({ text: 'Normal early on. I\u2019ve taken a step off next session so you can recover and still train.', replies: [a('Thanks', 'checkin', 'sore')] }),
     sun_time: () => ({ text: 'Then we keep sessions short rather than skip them. If a day gets tight, tell me and I’ll cut it to 20 minutes.', replies: [a('Sounds good', 'checkin', 'time')] }),
     sun_motivation: (c) => { const ev = c.plan.event; const days = ev ? App.diffDays(c.t, ev.date) : 0; return { text: 'You told me why you started: ' + (c.p.why ? '“' + c.p.why + '”' : 'to feel ' + (c.p.feel || []).join(', ').toLowerCase()) + '.' + (ev && days > 0 ? ' ' + days + ' days to ' + ev.name + '.' : '') + ' One session at a time.', replies: [a('Thanks, I needed that', 'checkin', 'motivation')] }; },
-    sun_food: () => ({ text: 'Let’s take the deciding out of it. Your dinners for next week are picked from the food you like.', replies: [a('Show me', 'dinners'), a('Thanks', 'checkin', 'food')] }),
+    sun_food: () => ({ text: 'Let’s take the deciding out of it. Pick two or three easy meals for the week before it starts, and if you’re eating out, tell me where and I’ll pick your order.', replies: [a('Thanks', 'checkin', 'food')] }),
     sun_busy: () => ({ text: 'Got it. If time runs out on a training day, tell me and I’ll trim the session.', replies: [a('Thanks', 'checkin', 'busy')] }),
     sun_eatout: () => ({ text: 'Message me the place on the day and I’ll pick your order.', replies: [a('Will do', 'checkin', 'eatout')] }),
     sun_done: (c) => {
@@ -146,11 +146,10 @@
     motivation: () => ({ text: 'Make a deal with me: go, do the warm-up and the first exercise. If you still want to leave after that, leave. Deal?', replies: [r('Deal', 'deal'), r('Not today', 'cant_make')] }),
     deal: () => ({ text: 'Good. That’s usually all it takes.', replies: [] }),
     progress: () => {
-      const t = E.totals(); const h = E.liftHistory();
-      const best = Object.keys(h).filter((id) => D.EX[id].unit === 'kg' && !D.EX[id].assist && h[id].length > 1).map((id) => ({ id, d: h[id][h[id].length - 1].v - h[id][0].v })).sort((x, y) => y.d - x.d)[0];
-      return { text: t.done + ' ' + App.plural(t.done, 'session') + ' in.' + (best && best.d > 0 ? ' Your ' + lower(D.EX[best.id].name) + ' is up ' + App.fmtKg(best.d) + ' kg since your first go.' : ' Give it two weeks and the numbers start moving.'), replies: [a('See my progress', 'progress')] };
+      const n = S().log.length; const best = E.biggestGain();
+      return { text: n + ' ' + App.plural(n, 'session') + ' in.' + (best ? ' Your ' + lower(D.EX[best.id].name) + ' has gone from ' + App.fmtKg(best.from) + ' to ' + App.fmtKg(best.to) + ' kg.' : ' Give it a few weeks and the numbers start moving.'), replies: [a('See my progress', 'progress')] };
     },
-    dinners_q: () => ({ text: 'Your five dinners for this week are picked from the food you like.', card: { type: 'dinners' }, replies: [a('See them all', 'dinners'), a('Shuffle them', 'shuffle')] }),
+    dinners_q: () => ({ text: 'A simple rule for any meal: half the plate vegetables, a palm of protein and a fist of carbs. Eating out? Tell me where and I’ll pick your order.', replies: [r('I’m eating out', 'eat_where')] }),
     menu_why: () => ({ text: 'They’re the most protein with the lightest sauces, so you leave full without feeling heavy. The “ask for” tweaks make them lighter still, and there’s nothing to count.', replies: [] }),
     locked: () => ({ text: 'Locked in. Enjoy it. I’ll ask how it went tonight.', replies: [] }),
     fallback: () => (!window.claude && !keyed()
@@ -181,8 +180,9 @@
     ease: (v) => { const [sl, how] = target(v); if (sl) { S().eases[sl.id] = how; App.save(); note('Weights eased ' + whenWord(sl).replace(/^on /, 'for ')); } return ['eased', [how, sl && sl.id]]; },
     easeNext: (v) => { const c = C(); const sl = c.todays || c.next; if (sl) { S().eases[sl.id] = 'all'; App.save(); note('Next session eased one step'); } return [v === 'sun' ? 'sun_sore' : 'post_very']; },
     food: (v) => { App.logFood(today(), v, true); return [v === 'on' ? 'food_on' : 'food_why']; },
-    dinners: () => { App.Views.dinnersSheet(); },
-    shuffle: () => { S().dinnerSeed++; App.save(); App.Views.dinnersSheet(); note('New dinners picked'); },
+    // replies on older messages
+    dinners: () => { App.goTab('eat'); },
+    shuffle: () => { App.goTab('eat'); },
     event: (v) => { const [type, d] = String(v).split('|'); S().events.push({ id: App.uid(), type, date: d, title: D.MOMENTS[type] ? D.MOMENTS[type].title : 'Family event', planned: true }); App.save(); note('Added to ' + fmtDate(d, 'long')); return ['event_plan', d]; },
     checkin: (v) => { const wk = weekStart(today()); S().checkins[wk] = { feel: v, at: Date.now() }; App.save(); App.checkAwards(); return ['sun_done']; },
     progress: () => { App.ACT.openProgress(); },

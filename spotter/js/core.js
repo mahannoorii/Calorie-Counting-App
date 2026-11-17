@@ -30,11 +30,9 @@
       checkins: {},        // week key → {feel, hard, at}
       moves: {}, skips: {}, trims: {}, eases: {},
       exSettings: {}, swaps: {},
-      awards: {}, opened: {},
-      rewards: null,
+      awards: {},
       chat: [], chatPosted: {}, chatRead: 0,
       usage: {}, recent: [],
-      dinnerSeed: 0,
       settings: { sound: true, theme: 'system' },
       dev: { offset: 0 },
       seen: {},

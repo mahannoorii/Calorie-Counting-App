@@ -11,7 +11,7 @@
   const MAP = {
     incline_db_press: 'incline_db_press', cable_fly: 'cable_fly', tri_pushdown_bar: 'cable_pushdown', tri_overhead_ext: 'overhead_cable_extension',
     seated_leg_curl: 'leg_curl', lying_leg_curl: 'lying_leg_curl', lat_pulldown: 'lat_pulldown', close_grip_pulldown: 'close_grip_pulldown',
-    seated_cable_row: 'seated_row', chest_supported_row: 'machine_row', t_bar_row: 't_bar_row', db_curl: 'db_curl', db_hammer_curl: 'hammer_curl',
+    seated_cable_row: 'machine_row', chest_supported_row: 'machine_row', t_bar_row: 't_bar_row', db_curl: 'db_curl', db_hammer_curl: 'hammer_curl',
     ez_bar_curl: 'ez_bar_curl', incline_db_curl: 'incline_db_curl', leg_extension: 'leg_extension', shoulder_press_machine: 'shoulder_press',
     db_lateral_raise: 'lateral_raise', cable_lateral_raise: 'cable_lateral_raise', rear_delt_machine: 'rear_delt_machine', rear_delt_cable: 'cable_rear_delt_fly',
     skull_crusher: 'skull_crusher', incline_smith_press: 'smith_incline_press', cable_crunch: 'cable_crunch', hanging_leg_raise: 'hanging_leg_raise',
@@ -22,7 +22,7 @@
     single_arm_cable_ext: { base: 'overhead_cable_extension', name: 'Single-arm cable triceps extension', perSide: true, start: 5 },
     preacher_curl_machine: { base: 'machine_curl', name: 'Preacher curl machine' },
   };
-  const BP_BASE = { chest: 'chest_press', back: 'seated_row', shoulders: 'shoulder_press', legs: 'leg_press', arms: 'db_curl', biceps: 'db_curl', triceps: 'cable_pushdown', core: 'cable_crunch' };
+  const BP_BASE = { chest: 'chest_press', back: 'machine_row', shoulders: 'shoulder_press', legs: 'leg_press', arms: 'db_curl', biceps: 'db_curl', triceps: 'cable_pushdown', core: 'cable_crunch' };
   const TAGS = { push: 'Pu', pull: 'Pl', sh: 'Sh', bk: 'Bk' };
 
   // Custom exercises live in the saved state and join the library at start-up.
@@ -32,8 +32,34 @@
       D.EX[id] = Object.assign({}, base, { id, name: c.name, custom: true, aka: [] }, c.perSide != null ? { perSide: c.perSide } : {}, c.start ? { start: c.start } : {});
     });
   }
+  // Exercise names the way the library writes them: sentence case, common gym spellings fixed
+  // ("dumbell", "pull down", "tricep ext", "DB"), brand and proper names kept.
+  const FIXES = [
+    [/\bdum+b?e+l+(s?)\b/g, 'dumbbell$1'], [/\bdbs?\b/g, 'dumbbell'], [/\bbb\b/g, 'barbell'], [/\bkbs?\b/g, 'kettlebell'],
+    [/\bez[ -]?bar\b/g, 'ez-bar'], [/\bextention\b/g, 'extension'], [/\bext\b\.?/g, 'extension'],
+    [/\bpull[ -]down\b/g, 'pulldown'], [/\bpush[ -]down\b/g, 'pushdown'], [/\bpull[ -]?ups?\b/g, 'pull-up'], [/\bchin[ -]?ups?\b/g, 'chin-up'], [/\bpush[ -]?ups?\b/g, 'push-up'],
+    [/\bpec dec\b/g, 'pec deck'], [/\blat(?:eral)? rises?\b/g, 'lateral raise'], [/\blat raises?\b/g, 'lateral raise'], [/\blateral raises\b/g, 'lateral raise'],
+    [/\bbicep\b/g, 'biceps'], [/\btricep\b/g, 'triceps'], [/\bpres\b/g, 'press'], [/\bfl(?:y|ie)e?s\b/g, 'fly'], [/\bflye\b/g, 'fly'],
+    [/\brdl\b/g, 'Romanian deadlift'], [/\bohp\b/g, 'overhead press'], [/\bcurls\b/g, 'curl'], [/\brows\b/g, 'row'], [/\bpresses\b/g, 'press'],
+    [/\b(single|one|straight) (arm|leg)\b/g, '$1-$2'], [/\b(close|wide|neutral) grip\b/g, '$1-grip'], [/\bchest supported\b/g, 'chest-supported'], [/\bplate loaded\b/g, 'plate-loaded'],
+    [/\b(\w+) \1\b/g, '$1'], [/\s*\(\s*\)/g, ''],
+  ];
+  const PROPER = [[/\bez-bar\b/g, 'EZ-bar'], [/\btrx\b/g, 'TRX'], [/\bsmith\b/g, 'Smith'], [/\bromanian\b/g, 'Romanian'], [/\bbulgarian\b/g, 'Bulgarian'], [/\barnold\b/g, 'Arnold'], [/\bhammer strength\b/g, 'Hammer Strength'], [/\bjm\b/g, 'JM'], [/\bpendlay\b/g, 'Pendlay'], [/\bzottman\b/g, 'Zottman'], [/\bmeadows\b/g, 'Meadows']];
+  function tidyName(name) {
+    let t = String(name || '').replace(/\s+/g, ' ').trim().toLowerCase(); if (!t) return '';
+    FIXES.forEach(([re, to]) => { t = t.replace(re, to); });
+    PROPER.forEach(([re, to]) => { t = t.replace(re, to); });
+    return (t.charAt(0).toUpperCase() + t.slice(1)).trim();
+  }
+  // A library exercise with this name or nickname, ignoring case, spacing and plurals.
+  function byName(name) {
+    const n = (x) => String(x || '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9]+/g, ' ').replace(/\b(\w+?)s\b/g, '$1').trim();
+    const q = n(tidyName(name)); if (!q) return null;
+    const same = (x) => n(tidyName(x)) === q;
+    return Object.keys(D.EX).find((id) => !D.EX[id].custom && (same(D.EX[id].name) || (D.EX[id].aka || []).some(same))) || null;
+  }
   function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
-  function nice(s) { s = String(s || '').trim(); return s === s.toUpperCase() ? s.toLowerCase().replace(/(^|[\s+])([a-z])/g, (m, a, b) => a + b.toUpperCase()) : s; }
+  function nice(s) { return tidyName(s); }
 
   function parseSet(x) {
     const s = String(x || '').trim(); if (!s) return null;
@@ -52,6 +78,8 @@
       const cid = 'il_' + slug(iid);
       if (CUSTOM[iid]) { customEx[cid] = CUSTOM[iid]; return cid; }
       const c = own[iid];
+      // one of your own that the library already has, by name ("Seated Row Machine")
+      const lib = byName(c ? c.nm : iid.replace(/_/g, ' ')); if (lib) return lib;
       customEx[cid] = { base: (c && BP_BASE[c.bp]) || 'chest_press', name: c ? nice(c.nm) : nice(iid.replace(/_/g, ' ')) };
       if (!c) unknown.push(iid);
       return cid;
@@ -60,7 +88,9 @@
     const log = [];
     const dayOf = (d) => { const x = String(d || ''); if (/^\d{4}-\d{2}-\d{2}$/.test(x)) return x; const t = new Date(x); return isNaN(t) ? '' : App.iso(t); };
     data.sessions.map((s) => Object.assign({}, s, { d: dayOf(s.d) })).filter((s) => s.d && s.d <= App.today()).sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0)).forEach((s) => {
-      const ex = (s.ex || []).map((e) => ({ id: idFor(e.id), sets: (e.sets || []).map(parseSet).filter(Boolean) })).filter((e) => e.sets.length);
+      const ex = [];
+      (s.ex || []).map((e) => ({ id: idFor(e.id), sets: (e.sets || []).map(parseSet).filter(Boolean) })).filter((e) => e.sets.length)
+        .forEach((e) => { const same = ex.find((x) => x.id === e.id); if (same) same.sets = same.sets.concat(e.sets); else ex.push(e); }); // two Iron Log moves that are one here
       if (!ex.length) return; // started but nothing logged
       log.push({ id: 'il_' + s.id, slot: null, key: s.t || '', week: 0, date: s.d, mins: 0, ex, prs: null, mood: null, imported: 'ironlog' });
     });
@@ -166,5 +196,5 @@
       .then((txt) => parseIronLog(JSON.parse(txt)));
   }
 
-  App.Import = { MAP, register, parseIronLog, apply, resync, sync, readFile };
+  App.Import = { MAP, register, parseIronLog, apply, resync, sync, readFile, byName, tidyName };
 })();

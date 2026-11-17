@@ -54,8 +54,8 @@
   // What each answer changes, shown under the option so the plan never feels random.
   const WORRY_EFFECT = {
     what: 'Every session planned, one step at a time', machines: 'Set-up steps for every machine', watched: 'Machines and quieter spots first',
-    busy: 'A swap ready for every exercise', motivation: 'Weekly targets, streaks and rewards', consistency: 'Weekly targets, streaks and rewards',
-    food: 'Dinners and restaurant orders picked for you', program: 'A structured program that tells you what to beat',
+    busy: 'A swap ready for every exercise', motivation: 'Weekly targets and streaks', consistency: 'Weekly targets and streaks',
+    food: 'Your order picked when you eat out', program: 'A structured program that tells you what to beat',
     plateau: 'A lighter week every fourth week, then push past it', bored: 'Fresh exercises every four weeks', form: 'Form cues on every move',
     efficient: 'Supersets built around the big lifts', recovery: 'Planned lighter weeks',
   };
@@ -81,7 +81,7 @@
       why: (p) => lvl(p) >= 2 ? 'This sets the program: how heavy, how many reps and how many days. Pick as many as you like.' : 'Pick as many as you like. It shapes your plan and how I keep you going.',
       valid: (p) => p.goals.length > 0,
       body: (p) => list(goalsFor(p).map((g) => opt('goal', g.id, g.label, '', [g.icon, GOAL_TILE[g.id]], p.goals.includes(g.id))), true) },
-    { id: 'event', when: (p) => p.goals.includes('event'), q: () => 'What’s the big day?', why: () => 'A date gives us a finish line. I’ll count down with you and plan backwards from it.',
+    { id: 'event', when: (p) => p.goals.includes('event'), q: () => 'What’s the big day?', why: () => 'I’ll keep it in mind when I coach you. Your training carries on after it.',
       valid: (p) => p.event.name.trim() && p.event.date && p.event.date > App.today(),
       body: (p) =>
         '<div class="field"><label class="field__label" for="obEvName">What is it?</label><input id="obEvName" class="input" data-in="obEvName" value="' + esc(p.event.name) + '" placeholder="e.g. Holiday in Bali"></div>' +
@@ -137,7 +137,7 @@
       body: (p) => list(D.TIMES.map((t) => opt('time', t.id, t.label, 'Around ' + t.at, TIME_TILE[t.id], p.time === t.id)), true) +
         '<div class="field"><div class="field__label">Time for each session</div><div class="seg seg--lg">' + E().minOptions(p).map((m) => seg('obMins', String(m), String(m), p.mins === m)).join('') + '</div><p class="fn" style="margin-top:6px">Minutes, including a short warm-up.</p></div>' +
         (p.worries.includes('time') || p.worries.includes('efficient') ? '<div class="callout callout--blue">' + icon('bolt') + '<div>' + (lvl(p) >= 2 ? 'You said time matters, so I’ll pair exercises into supersets. ' + p.mins + ' minutes will go a long way.' : 'You said time is tight. Shorter sessions just use fewer machines, and I can cut any day to 20 minutes.') + '</div></div>' : '') },
-    { id: 'cuisines', q: () => 'What do you usually eat?', why: () => 'Pick all that apply. I’ll plan easy dinners from these and pick your order when you eat out.',
+    { id: 'cuisines', q: () => 'What do you usually eat?', why: () => 'Pick all that apply. It helps me pick your order when you eat out.',
       valid: (p) => p.cuisines.length > 0,
       body: (p) => '<div class="chips">' + D.CUISINES.map((c) => chip('obCuisine', c.id, c.name, p.cuisines.includes(c.id))).join('') + '</div>' },
     { id: 'derail', q: () => 'What usually knocks your eating off track?', why: () => 'Optional. These are the moments I’ll help you plan for.', optional: (p) => !p.derailers.length,
@@ -358,8 +358,7 @@
       'Reading your answers',
       'Checking the equipment at ' + (p.gym ? p.gym.short || p.gym.name : 'your gym'),
       'Building ' + (plan ? listWords(plan.order.map((k) => plan.sessions[k].name).filter((x, i, a) => a.indexOf(x) === i)) : 'your sessions'),
-      'Picking dinners you’ll actually eat',
-      p.goals.includes('event') && p.event.date ? 'Counting down to ' + (p.event.name || 'your big day') : 'Lining up your rewards',
+      'Lining up your first week',
     ];
     return '<div class="build"><div class="build__inner">' +
       '<div class="spin spin--bar">' + App.bar({ train: 3, trainMax: 3, eat: 5, eatMax: 5, cls: 'bar--loading' }) + '</div>' +
@@ -382,21 +381,18 @@
     const tm = Ex.timeOf(plan.time);
     const exs = Ex.exercisesFor(first.key, first.week, first.id);
     const days = plan.days.map((d) => App.DOW[d]);
-    const rw = Ex.partnerRewards();
     const why = plan.why || [];
     return '<div class="reveal">' +
       '<div><div class="eyebrow t-accent">Your plan is ready</div><h1 class="reveal__title">' + esc(firstName(p)) + ', here’s how we’ll do it.</h1></div>' +
       '<div class="group">' +
-        row('calendar', 'bg-accent', plan.weeks + ' weeks, ' + plan.days.length + ' sessions a week', days.join(', ') + ' · ' + tm.label.toLowerCase() + ' · ' + plan.mins + ' min') +
+        row('calendar', 'bg-accent', plan.days.length + ' sessions a week, ongoing', days.join(', ') + ' · ' + tm.label.toLowerCase() + ' · ' + plan.mins + ' min') +
         row('pin', 'bg-purple', Ex.gymName(), (p.gym && p.gym.suburb ? p.gym.suburb + ' · ' : '') + (D.EXPERIENCE.find((x) => x.id === p.experience) || {}).label) +
-        (plan.event ? row('plane', 'bg-blue', plan.event.name, App.fmtDate(plan.event.date, 'long') + ' · ' + App.diffDays(App.today(), plan.event.date) + ' days') : row('flag', 'bg-blue', 'Finish line', App.fmtDate(plan.end, 'long'))) +
       '</div>' +
       (why.length ? '<div class="sec"><div class="sec__h"><h2 class="sec__title">How your answers shaped it</h2></div><div class="group group--tiles">' + why.map((r) => row(r[0], r[1], r[2], r[3])).join('') + '</div></div>' : '') +
       '<div class="sec"><div class="sec__h"><h2 class="sec__title">' + esc(Ex.sessionName(first)) + ' first</h2><span class="sec__aside">' + esc(App.rel(Ex.slotDate(first))) + ' · ' + esc(tm.at) + '</span></div>' +
         '<div class="group group--tiles">' + exs.map((e) => { const ex = D.EX[e.id]; return '<div class="cell"><span class="cell__tile cell__tile--art">' + art(ex.art) + '</span><span class="cell__main"><span class="cell__title">' + esc(ex.name) + '</span><span class="cell__sub">' + esc((e.pair ? 'Superset · ' : '') + e.sets + ' sets · ' + ex.focus) + '</span></span></div>'; }).join('') + '</div>' +
         '<p class="fn">' + esc(Ex.phaseFor(1, plan).note) + '</p></div>' +
       '<div class="callout">' + coachMark() + '<div><b>I’ll check in each day.</b> Tap a reply or message me any time: if you’re sore, short on time or eating out, I’ll sort it.</div></div>' +
-      (rw.length ? '<div class="sec"><div class="sec__h"><h2 class="sec__title">Rewards on the way</h2></div><div class="group group--tiles">' + rw.map((r) => row('gift', 'bg-gold', r.text, 'Week ' + r.week + ' · after ' + r.need + ' sessions')).join('') + '</div></div>' : '') +
       '<div class="ob__foot"><div class="ob__foot-inner"><button class="btn btn--block btn--accent" data-act="startPlan">Let’s go</button></div></div>' +
     '</div>';
   }
@@ -485,6 +481,8 @@
       if (!p.equipment) p.equipment = STYLE_DEFAULT[p.experience] || 'machines';
       App.S.profile = toProfile(p);
       if (prev && prev.health && prev.health.cleared && !App.S.profile.health.flag) App.S.profile.health.cleared = true;
+      // a different gym picked here: the one you were at stays in your gyms, with its equipment
+      if (prev && prev.gym && !E().sameGym(prev.gym, App.S.profile.gym)) E().addGym(prev.gym, false);
       const prevPlan = App.S.plan;
       const imp = ob.imp; ob.imp = null;
       if (imp) { App.S.plan = null; App.Import.apply(imp); }
@@ -503,7 +501,6 @@
       } else App.S.plan = plan;
       if (imp) App.Import.resync();
       App.checkAwards(true);
-      App.S.rewards = App.S.rewards || Object.assign({}, D.DEFAULT_REWARDS);
       App.saveNow();
       ob.active = true; ob.phase = 'build'; App.render(); App.scrollTo(0);
       runBuild();
@@ -607,5 +604,5 @@
     obNewGym(el) { ob.p.newGym.name = el.value; const b = App.$('[data-act="obAddGymSave"]'); if (b) b.disabled = !el.value.trim(); },
   });
 
-  App.OB = { render, blank, demo, fromProfile, toProfile, visibleSteps };
+  App.OB = { render, blank, demo, fromProfile, toProfile, visibleSteps, gymTile, distWord };
 })();

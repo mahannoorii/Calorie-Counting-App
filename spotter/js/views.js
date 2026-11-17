@@ -36,7 +36,9 @@
   function firstName() { const p = S().profile; return p && p.name ? p.name.split(' ')[0] : ''; }
   function coachGlyph() { return App.mark(true); }
   const avatarCoach = (lg) => '<span class="coach-avatar' + (lg ? ' coach-avatar--lg' : '') + '">' + coachGlyph() + '</span>';
-  function curWeekNo() { const plan = S().plan; return App.clamp(Math.floor(diffDays(weekStart(plan.start), today()) / 7) + 1, 1, plan.weeks); }
+  function curWeekNo() { const plan = S().plan; return Math.max(1, Math.floor(diffDays(weekStart(plan.start), today()) / 7) + 1); }
+  // What this week is for ("Block 2", "Lighter week"): training just carries on, so no countdown.
+  function phaseNow() { return E.phaseFor(curWeekNo(), S().plan).name; }
   function cuisineName(id) { return ((D.MENUS[id] || D.CUISINES.find((c) => c.id === id)) || {}).name || ''; }
   function spark(vals) {
     if (vals.length < 2) return '';
@@ -82,8 +84,8 @@
     const nudge = foodNudge();
     h += cols('<section class="sec">' + upNextCard() + '</section>' + (nudge ? '<section class="sec" data-food-slot>' + nudge + '</section>' : '') +
       '<section class="sec" data-coach-slot>' + coachCard() + '</section>',
-      sec('This week', '<span class="sec__aside">Week ' + curWeekNo() + ' of ' + S().plan.weeks + '</span>', weekCard()) +
-      '<section class="sec">' + group([goalCell(), bodyCell(), rewardCell(), installCell()], true) + '</section>');
+      sec('This week', '<span class="sec__aside">' + esc(phaseNow()) + '</span>', weekCard()) +
+      '<section class="sec">' + group([bodyCell(), installCell()], true) + '</section>');
     return h + '</div>';
   }
   function upNextCard() {
@@ -101,7 +103,15 @@
       '<div class="upnext__eyebrow">' + esc(u.eyebrow) + '</div>' +
       '<h2 class="upnext__title">' + esc(u.title) + '</h2>' +
       '<p class="upnext__sub">' + esc(u.sub) + '</p>' +
-      '<div class="upnext__actions">' + a + '</div></div>';
+      '<div class="upnext__actions">' + a + '</div>' + (u.kind === 'active' ? '' : gymLine(u.slot)) + '</div>';
+  }
+  // Which gym you're at, and how a session fits it: one tap to change gym.
+  function gymLine(sl) {
+    const g = E.gym(); if (!g) return '';
+    const chk = sl ? E.gymCheck(sl) : []; const subs = chk.filter((x) => x.planned).length; const miss = chk.filter((x) => x.unavailable).length;
+    const sure = chk.filter((x) => x.sure === 'yes' || x.sure === 'likely' || x.sure === 'none').length;
+    const txt = !chk.length ? '' : miss ? miss + ' ' + App.plural(miss, 'exercise') + ' not possible here' : subs ? subs + ' swapped for this gym' : g.research ? (sure === chk.length ? 'All ' + chk.length + ' exercises here' : sure + ' of ' + chk.length + ' confirmed online') : 'Equipment not checked yet';
+    return '<button class="gymline' + (miss ? ' is-bad' : subs ? ' is-swap' : '') + '" data-act="openGyms">' + icon('pin', 'ic-sm') + '<span class="gymline__main"><b>' + esc(E.gymShort()) + '</b>' + (txt ? '<span>' + esc(txt) + '</span>' : '') + '</span><span class="gymline__change">Change</span></button>';
   }
 
   // The latest message from the coach, answerable right here.
@@ -127,7 +137,7 @@
         '<button class="btn btn--plain btn--sm" data-act="go" data-v="coach">Open chat</button></div>' + body + '</div>';
   }
   function cardInline(m) {
-    if (!m.card || (m.card.type !== 'menu' && m.card.type !== 'dinners')) return '';
+    if (!m.card || m.card.type !== 'menu') return '';
     return msgCard(m.card, ' is-instant').replace('<div class="msgcard is-instant">', '<div class="msgcard is-instant" style="width:100%;box-shadow:none;background:var(--fill-2);margin-top:12px">');
   }
   function placeBox(m) {
@@ -157,21 +167,11 @@
     return '<button class="card card--tap weekcard" data-act="openWeek" aria-label="This week: ' + w.train + ' of ' + w.trainMax + ' sessions, ' + App.fmtKg(w.eat) + ' of ' + w.eatMax + ' good food days">' +
       '<div class="weekcard__bar">' + weekBar(w, 'card') + '</div>' + weekLegend(w) + '</button>';
   }
-  function goalCell() {
-    const plan = S().plan; const ev = plan.event;
-    const days = Math.max(0, diffDays(today(), ev ? ev.date : plan.end));
-    return cell({ act: 'openGoal', tile: [ev ? 'plane' : 'flag', 'bg-blue'], title: esc(ev ? ev.name : 'Finish line'), sub: days + ' ' + App.plural(days, 'day') + ' to go · ' + esc(fmtDate(ev ? ev.date : plan.end, 'dm')) });
-  }
   function bodyCell() {
     const b = App.Body.summary();
     if (!b) return cell({ act: 'go', v: 'body', tile: ['scale', 'bg-blue'], title: 'Body weight', sub: 'Log a weigh-in to start your trend' });
     const sub = b.ago >= 7 ? 'Last weighed ' + b.ago + ' days ago' : b.rateText ? b.rateText : 'Weigh in again to see your trend';
     return cell({ act: 'go', v: 'body', tile: ['scale', 'bg-blue'], title: 'Body weight', sub: esc(sub), value: App.fmtKg(Math.round(b.last.kg * 10) / 10) + ' kg' });
-  }
-  function rewardCell() {
-    const r = E.partnerRewards().find((x) => !x.open); if (!r) return '';
-    const left = Math.max(0, r.need - E.totals().done);
-    return cell({ act: 'openRewards', tile: ['gift', 'bg-gold'], title: esc(r.text), sub: left + ' more ' + App.plural(left, 'session') + ' to unlock' });
   }
   function isIOS() { const ua = navigator.userAgent || ''; return /iphone|ipad|ipod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
   function standalone() { return window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); }
@@ -202,41 +202,36 @@
     const inner = week.length
       ? group(week.map((sl) => { const st = slotState(sl); return cell({ act: 'previewSession', v: sl.id, lead: slotDot(sl, st), title: esc(E.sessionName(sl)), sub: esc(DOW_LONG[App.dow(E.slotDate(sl))] + ' · ' + plan.sessions[sl.key].title), value: STATE_WORD[st] }); }), true)
       : '<div class="callout callout--blue">' + icon('calendar') + '<div>' + (plan.start > t ? 'Your plan starts ' + esc(fmtDate(plan.start, 'long')) + '.' : 'No sessions this week.') + '</div></div>';
-    let a = sec('This week', '<span class="sec__aside">Week ' + curWeekNo() + ' of ' + plan.weeks + '</span>', inner);
-    // The whole plan, a week per dropdown.
-    const weeks = [];
-    for (let w = 1; w <= plan.weeks; w++) {
-      const ws = addDays(weekStart(plan.start), (w - 1) * 7);
-      const slots = plan.slots.filter((sl) => sl.week === w);
-      const done = slots.filter((sl) => E.isDone(sl)).length;
-      const ph = E.phaseFor(w, plan);
-      const head = cell({ act: 'toggleDisc', v: 'week' + w, title: 'Week ' + w + (w === curWeekNo() && plan.start <= t ? ' <span class="tag tag--pick" style="margin-left:6px;vertical-align:2px">Now</span>' : ''), sub: esc(ph.name + ' · ' + fmtDate(ws, 'dm') + ' – ' + fmtDate(addDays(ws, 6), 'dm')), value: slots.length ? done + '/' + slots.length : '' });
-      const panel = slots.length ? slots.map((sl) => { const st = slotState(sl); return '<button class="slotline" data-act="previewSession" data-v="' + sl.id + '">' + slotDot(sl, st) + '<span class="cell__main"><span class="cell__title">' + esc(E.sessionName(sl)) + '</span><span class="cell__sub">' + esc(fmtDate(E.slotDate(sl), 'short')) + '</span></span><span class="cell__value" style="font-size:15px">' + STATE_WORD[st] + '</span>' + chev() + '</button>'; }).join('') : '<p class="muted" style="font-size:15px">Rest week.</p>';
-      weeks.push(disc('week' + w, head, panel));
-    }
-    a += sec('Your plan', '<span class="sec__aside">' + esc(E.phaseFor(curWeekNo(), plan).name) + '</span>', '<div class="group">' + weeks.join('') + '</div>');
+    let a = sec('This week', '<span class="sec__aside">' + esc(phaseNow()) + '</span>', inner);
+    // Training carries on week after week: next week at a glance, then your sessions.
+    const nwk = addDays(wk, 7);
+    const next = plan.slots.filter((sl) => { const d = E.slotDate(sl); return d >= nwk && d <= addDays(nwk, 6); }).sort((x, y) => (E.slotDate(x) < E.slotDate(y) ? -1 : 1));
+    if (next.length) a += sec('Next week', '', group(next.map((sl) => { const st = slotState(sl); return cell({ act: 'previewSession', v: sl.id, lead: slotDot(sl, st), title: esc(E.sessionName(sl)), sub: esc(DOW_LONG[App.dow(E.slotDate(sl))] + ' · ' + plan.sessions[sl.key].title), value: STATE_WORD[st] }); }), true));
+    const keys = (plan.order || []).filter((k, i, all) => plan.sessions[k] && all.indexOf(k) === i);
+    a += sec('Your sessions', '<span class="sec__aside">' + keys.length + ' in rotation</span>', group(keys.map((k) => {
+      const ss = plan.sessions[k]; const nx = E.openSlots().find((x) => x.key === k && E.slotDate(x) >= t) || plan.slots.filter((x) => x.key === k).pop();
+      const n = E.exercisesFor(k, nx ? nx.week : curWeekNo(), nx ? nx.id : undefined).length;
+      return cell({ act: 'previewSession', v: nx ? nx.id : '', lead: slotDot({ key: k }, 'later'), title: esc(ss.name), sub: esc((ss.title ? ss.title + ' · ' : '') + n + ' ' + App.plural(n, 'exercise')), value: nx && E.slotDate(nx) >= t ? esc(DOW[App.dow(E.slotDate(nx))]) : '' });
+    }), true) + '<p class="fn">Your sessions repeat in this order, week after week. Ask the coach to change any of them.</p>');
     // Progress, summarised; the detail is a tap away.
-    const tot = E.totals(); const streak = E.streakWeeks(); const best = bestLift();
+    const tot = E.totals(); const streak = E.streakWeeks(); const best = E.biggestGain();
     const earned = Object.keys(s.awards).length;
     let b = sec('Progress', '<button class="sec__link" data-act="openProgress">See all</button>', group([
-      cell({ act: 'openProgress', tile: ['check', 'bg-accent'], title: 'Sessions', value: tot.done + ' of ' + tot.total }),
+      cell({ act: 'openProgress', tile: ['check', 'bg-accent'], title: 'Sessions', value: String(S().log.length) }),
       cell({ act: 'streakInfo', tile: ['flame', 'bg-red'], title: 'Weeks on target', value: streak + ' in a row' }),
-      best ? cell({ act: 'openExercise', v: best.id, tile: ['trend', 'bg-green'], title: esc(D.EX[best.id].name), sub: 'Your biggest jump so far', value: '<span class="delta">+' + App.fmtKg(best.d) + ' kg</span>' }) : '',
+      best ? cell({ act: 'openExercise', v: best.id, tile: ['trend', 'bg-green'], title: esc(D.EX[best.id].name), sub: 'Biggest gain: ' + App.fmtKg(best.from) + ' to ' + App.fmtKg(best.to) + ' kg since ' + esc(fmtDate(best.since, 'dm')), value: '<span class="delta">+' + App.fmtKg(best.d) + ' kg</span>' }) : '',
       cell({ act: 'openProgress', tile: ['trophy', 'bg-gold'], title: 'Personal records', value: String(E.prCount()) }),
       cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: earned + ' of ' + D.AWARDS.length }),
     ], true));
     b += sec('More', '', group([
       cell({ act: 'openLibrary', tile: ['search', 'bg-blue'], title: 'Exercises', sub: Object.keys(D.EX).length + ' moves to search, with how to do each one' }),
-      cell({ act: 'openGym', tile: ['pin', 'bg-purple'], title: 'Your gym', sub: esc(E.gymName()) + ' · equipment' }),
+      cell({ act: 'openGyms', tile: ['pin', 'bg-purple'], title: 'Your gyms', sub: esc(E.gymName()) + ' · switch gym or check equipment' }),
       cell({ act: 'openPack', tile: ['bag', 'bg-teal'], title: 'Pack your bag', sub: 'What to bring each session' }),
       fromIronLog() ? ironLogCell() : '',
     ], true));
     return h + cols(a, b) + '</div>';
   }
-  function bestLift() {
-    const h = E.liftHistory();
-    return Object.keys(h).filter((id) => D.EX[id].unit === 'kg' && !D.EX[id].assist && h[id].length > 1).map((id) => ({ id, d: h[id][h[id].length - 1].v - h[id][0].v })).filter((x) => x.d > 0).sort((a, b) => b.d - a.d)[0] || null;
-  }
+
 
   // Bringing in sessions logged in Iron Log, while you use both apps.
   function fromIronLog() { const s = S(); return !!(s.ironlog || s.log.some((l) => l.imported === 'ironlog')); }
@@ -253,9 +248,8 @@
     const w = E.week();
     const halves = (n) => (Math.floor(n) || (n % 1 ? '' : '0')) + (n % 1 ? '½' : '');
     let h = header('Eat', halves(w.eat) + ' of ' + w.eatMax + ' good days this week') + '<div class="page">';
-    h += cols('<section class="sec">' + foodCard() + '</section>' + sec('Eating out', '', eatOutBox() + placesList()),
-      sec('This week’s dinners', '<button class="sec__link" data-act="shuffleDinners">Shuffle</button>', dinnersList()) +
-      sec('Big meal coming up?', '', momentsList()));
+    h += cols('<section class="sec">' + foodCard() + '</section>',
+      sec('Eating out', '', eatOutBox() + placesList()) + sec('Big meal coming up?', '', momentsList()));
     return h + '</div>';
   }
   // How a day reads: "Today", "Yesterday", "Thursday 13 November".
@@ -320,10 +314,6 @@
     if (!pl.length) return '';
     const sub = (x) => { const m = x.menu; const web = m && (m.src === 'web' || m.src === 'coach'); return web ? [m.where, m.kind === 'dish' ? 'dish' : 'looked up'].filter(Boolean).join(' · ') : cuisineName(x.cuisine); };
     return '<div class="sec__label">Recent</div>' + group(pl.map((x) => cell({ act: 'openMenu', v: x.name + '|' + x.cuisine, tile: [x.menu && x.menu.kind === 'dish' ? 'fork' : 'pin', 'bg-red'], title: esc((x.menu && x.menu.title) || x.name), sub: esc(App.cap(sub(x))) + (lockedToday(x.name) ? ' · locked in today' : '') })), true);
-  }
-  function dinnersList() {
-    const t = today();
-    return group(E.dinners().map((x) => cell({ act: 'openMeal', v: x.meal.id, lead: '<span class="daytag' + (x.day === t ? ' is-today' : '') + '">' + DOW[App.dow(x.day)] + '</span>', title: esc(x.meal.name), sub: esc(cuisineName(x.meal.c)) })));
   }
   function momentsList() {
     const t = today();
@@ -390,10 +380,6 @@
         '<ul class="msgcard__list">' + picks.map((it, i) => '<li><span class="n">' + (i + 1) + '</span><span>' + esc(it.n) + (it.kcal ? '<small class="msgcard__kcal">' + esc(kcalText(it)) + '</small>' : '') + '</span></li>').join('') + '</ul>' +
         (picks[0] && (modsList(picks[0]).length || picks[0].tip) ? '<div class="msgcard__ask">' + icon('sparkle', 'ic-sm') + '<span>' + esc(modsList(picks[0]).length ? 'Ask for: ' + modsList(picks[0]).slice(0, 2).join(', ').toLowerCase() : picks[0].tip) + '</span></div>' : '') +
         btn('Full menu', 'openMenu', c.place + '|' + c.cuisine, 'btn--sm btn--tinted') + '</div>';
-    }
-    if (c.type === 'dinners') {
-      return '<div class="msgcard' + inst + '"><div><div class="msgcard__eyebrow">This week</div><div class="msgcard__title">Your dinners</div></div><ul class="msgcard__list">' +
-        E.dinners().map((x) => '<li><span class="d">' + DOW[App.dow(x.day)] + '</span>' + esc(x.meal.name) + '</li>').join('') + '</ul></div>';
     }
     return '';
   }
@@ -488,7 +474,8 @@
   function ssTag(e) { return e.pair ? '<span class="sstag">' + 'ABCDEFG'.charAt(Number(e.pair.slice(1)) - 1) + (e.pairRole === 'a' ? '1' : '2') + '</span>' : ''; }
   function exRow(e, slotId) {
     const ex = D.EX[e.id]; const sg = E.suggest(e.id, slotId, e);
-    return cell({ act: 'openExercise', v: e.id, art: ex.art, title: ssTag(e) + esc(ex.name), sub: e.sets + ' sets · ' + repsText(ex, e.reps) + (e.pairRole === 'a' ? ' · then straight to the next' : '') + (e.cap && ex.unit === 'kg' ? ' · max ' + App.fmtKg(e.cap) + ' kg' : '') + (e.note ? ' · ' + esc(e.note) : ''), value: esc(sg.mode === 'find' ? 'Find it' : sg.title) });
+    const here = e.planned && D.EX[e.planned] ? '<span class="cell__flag">' + icon('swap', 'ic-sm') + 'Instead of ' + esc(App.lc(D.EX[e.planned].name)) + ', not at this gym</span>' : e.unavailable ? '<span class="cell__flag cell__flag--bad">' + icon('alert', 'ic-sm') + 'Not at this gym</span>' : '';
+    return cell({ act: 'openExercise', v: e.id, art: ex.art, title: ssTag(e) + esc(ex.name), sub: e.sets + ' sets · ' + repsText(ex, e.reps) + (e.pairRole === 'a' ? ' · then straight to the next' : '') + (e.cap && ex.unit === 'kg' ? ' · max ' + App.fmtKg(e.cap) + ' kg' : '') + (e.note ? ' · ' + esc(e.note) : '') + here, value: esc(sg.mode === 'find' ? 'Find it' : sg.title) });
   }
   function previewSheet(id) {
     const sl = E.slotById(id); if (!sl) return;
@@ -499,7 +486,8 @@
     let body = '<div class="sheet__lead"><div class="eyebrow">' + esc(fmtDate(d, 'long')) + ' · Week ' + sl.week + '</div><h1 class="sheet__h1">' + esc(plan.sessions[sl.key].title) + '</h1></div>';
     if (done && log) body += '<div class="callout callout--green">' + icon('check') + '<div><b>Done ' + esc(App.relLow(log.date)) + '.</b> ' + log.mins + ' min · ' + App.sum(log.ex.map((e) => e.sets.length)) + ' sets · ' + Math.round(App.sum(log.ex.map((e) => App.sum(e.sets.map((x) => (x.w || 0) * x.r))))).toLocaleString('en-AU') + ' kg lifted</div></div>';
     if (S().trims[id] || S().eases[id]) body += '<div class="callout">' + icon('sliders') + '<div>' + (S().trims[id] ? 'Cut to ' + S().trims[id] + ' exercises, two sets each. ' : '') + (S().eases[id] ? 'Weights eased one step.' : '') + '</div></div>';
-    body += '<div class="group group--tiles">' + cardio(plan.warmup, 'Warm-up') + exs.map((e) => exRow(e, id)).join('') + (plan.finisher ? cardio(plan.finisher, 'Finisher') : '') + '</div>';
+    if (!done) body += gymLine(sl);
+    body += '<div class="group group--tiles">' + cardio(E.cardioAt(plan.warmup), 'Warm-up') + exs.map((e) => exRow(e, id)).join('') + (plan.finisher ? cardio(E.cardioAt(plan.finisher), 'Finisher') : '') + '</div>';
     body += '<p class="fn"><b>' + esc(phase.name) + '.</b> ' + esc(phase.note) + (exs.some((e) => e.pair) ? ' Exercises marked A1 and A2 are a superset: one set of each, back to back, then rest.' : '') + ' Tap any exercise to see how it’s done.</p>';
     const canStart = !done && !S().active && !E.isSkipped(sl);
     const label = d === today() ? 'Start session' : d < today() ? 'Do it now' : 'Start it now instead';
@@ -525,7 +513,7 @@
     App.sheet('Options', body);
   }
 
-  // ── Week, goal, rewards, progress, awards ─────────────────────────────────
+  // ── Week, progress, awards ──────────────────────────────────────────────
   function weekSheet() {
     const t = today(); const wk = weekStart(t); const w = E.week(wk);
     const rows = [0, 1, 2, 3, 4, 5, 6].map((i) => {
@@ -538,30 +526,6 @@
     const body = '<div class="weekcard weekcard--sheet"><div class="weekcard__bar">' + weekBar(w, 'sheet') + '</div>' + weekLegend(w) + '</div>' +
       group(rows) + '<p class="fn">Load the bar: a plate on the left for every planned session, a plate on the right for each of five good food days (“partly” is half a plate). A fully loaded bar locks for a perfect week.</p>';
     App.sheet('This week', body);
-  }
-  function goalSheet() {
-    const p = S().profile; const plan = S().plan; const ev = plan.event;
-    const days = Math.max(0, diffDays(today(), ev ? ev.date : plan.end));
-    const tot = E.totals();
-    const body = '<div class="sheet__lead" style="justify-items:center;text-align:center;padding-top:6px"><div class="bignum num" data-count="' + days + '">' + days + '</div><div class="muted">' + App.plural(days, 'day') + ' to ' + esc(ev ? ev.name : 'the finish line') + ' · ' + esc(fmtDate(ev ? ev.date : plan.end, 'long')) + '</div></div>' +
-      '<div class="card"><div style="display:flex;justify-content:space-between;font-size:15px"><span class="muted">Sessions</span><span><b>' + tot.done + '</b> of ' + tot.total + '</span></div><div class="progressline"><i data-w="' + Math.round((tot.done / Math.max(1, tot.total)) * 100) + '"></i></div></div>' +
-      (p.why || (p.feel && p.feel.length) ? '<div class="sec"><div class="sec__label">Your why</div><div class="card" style="display:grid;gap:12px">' + (p.why ? '<p class="quote">' + esc(p.why) + '</p>' : '') + (p.feel && p.feel.length ? '<p class="muted" style="font-size:15px">You want to feel ' + esc(p.feel.join(', ').toLowerCase()) + '.</p>' : '') + '</div></div>' : '') +
-      rewardsGroup();
-    App.sheet(ev ? 'Your goal' : 'Finish line', body, { left: '<button class="btn btn--plain" style="padding:0" data-act="editGoal">Edit</button>' });
-    App.countUp(App.$('[data-count]', App.topLayer()), days, 900);
-    animateBars();
-  }
-  function rewardsGroup() {
-    const rw = E.partnerRewards(); if (!rw.length) return '';
-    const done = E.totals().done;
-    return '<div class="sec"><div class="sec__label">Rewards</div>' + group(rw.map((r) => cell({ tile: [r.open ? 'gift' : 'lock', r.open ? 'bg-gold' : 'bg-ink'], title: esc(r.text), sub: r.open ? 'Unlocked. Enjoy it.' : 'Week ' + r.week + ' · ' + Math.max(0, r.need - done) + ' more ' + App.plural(Math.max(0, r.need - done), 'session') }) ), true) + '</div>';
-  }
-  function rewardsSheet() {
-    const plan = S().plan; const rw = S().rewards || D.DEFAULT_REWARDS;
-    const body = '<p class="lead">Little things to look forward to, unlocked by showing up. Ask someone close to you to set them.</p>' + rewardsGroup() +
-      '<div class="sec"><div class="sec__label">Change them</div><div class="card" style="display:grid;gap:14px">' +
-      Object.keys(rw).map(Number).filter((w) => w <= plan.weeks).map((w) => '<div class="field"><label class="field__label" for="rw' + w + '">Week ' + w + ' · after ' + plan.days.length * w + ' sessions</label><input id="rw' + w + '" class="input" data-in="reward" data-w="' + w + '" value="' + esc(rw[w] || '') + '" placeholder="e.g. A massage"></div>').join('') + '</div></div>';
-    App.sheet('Rewards', body);
   }
   function progressSheet() {
     const s = S(); const tot = E.totals();
@@ -666,17 +630,6 @@
     rows.sort((a, b) => b.near - a.near);
     App.sheet('Use it in my plan', '<div class="sheet__lead"><h1 class="sheet__h1">Swap in the ' + esc(App.lc(ex.name)) + '</h1><p class="lead">Pick what it replaces. Moves that do the same job are first.</p></div>' + group(rows.map((r) => r.html), true));
   }
-  function gymSheet() {
-    const g = E.gym(); const k = E.kit();
-    const possible = Object.keys(D.EX).filter((id) => E.canDo(id, k)).length;
-    const src = g.chain === 'home' ? 'Your home setup' : g.custom ? 'Added by you' : 'Equipment from what the club and chain list online, checked ' + fmtDate(g.checked || D.GYMDB.checked, 'dm') + (g.edited ? ', with your changes' : '');
-    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(g.suburb || (g.chain === 'home' ? 'Home' : 'Your gym')) + '</div><h1 class="sheet__h1">' + esc(g.name) + '</h1>' + (g.address ? '<p class="muted" style="font-size:15px">' + esc(g.address) + '</p>' : '') + '</div>' +
-      '<div class="kitsum"><div><div class="kitsum__n">' + g.kit.length + '</div><div class="kitsum__l">types of equipment</div></div><div><div class="kitsum__n">' + possible + '</div><div class="kitsum__l">exercises possible</div></div></div>' +
-      group([cell({ act: 'openKit', tile: ['sliders', 'bg-blue'], title: 'Equipment', sub: esc(src) }), g.url ? '<a class="cell" href="' + esc(g.url) + '" target="_blank" rel="noopener"><span class="cell__tile bg-purple">' + icon('pin') + '</span><span class="cell__main"><span class="cell__title">Club page</span><span class="cell__sub">Hours, address and contact</span></span>' + chev() + '</a>' : ''], true) +
-      '<div class="callout callout--blue">' + icon('camera') + '<div><b>Photos of each machine come next.</b> Add your own from any exercise in a session, and it’s there next time.</div></div>' +
-      group([cell({ act: 'editPlan', v: 'gym', title: 'Change gym', cls: 'cell--link', chev: false })]);
-    App.sheet('Your gym', body);
-  }
   // Edit what's at your gym. Anything in the plan that's no longer possible is swapped.
   function kitSheet(replace) {
     const g = E.gym(); const on = new Set(g.kit);
@@ -773,21 +726,6 @@
     const opts = ['italian', 'pizza', 'japanese', 'ramen', 'thai', 'chinese', 'vietnamese', 'korean', 'indian', 'middleeast', 'greek', 'mexican', 'pub', 'burgers', 'chicken', 'cafe'];
     App.sheet('Eating out', '<div class="sheet__lead"><h1 class="sheet__h1">What kind of food is ' + esc(name) + '?</h1><p class="lead">One tap and I’ll pick your order.</p></div><div class="chips">' + opts.map((k) => '<button class="chip" data-act="pickCuisine" data-v="' + esc(name + '|' + k) + '">' + esc(D.MENUS[k].name) + '</button>').join('') + '</div>');
   }
-  function dinnersSheet(replace) {
-    const t = today(); const cus = E.cuisines().map(cuisineName).filter(Boolean);
-    const body = '<p class="lead">Lighter takes on food you already eat' + (cus.length ? ': ' + esc(cus.slice(0, 4).join(', ')) : '') + '. Nothing to count.</p>' +
-      '<div class="group">' + E.dinners().map((x, i) => disc('din' + i, cell({ act: 'toggleDisc', v: 'din' + i, lead: '<span class="daytag' + (x.day === t ? ' is-today' : '') + '">' + DOW[App.dow(x.day)] + '</span>', title: esc(x.meal.name), sub: esc(cuisineName(x.meal.c)) }), '<ul class="dots-list">' + x.meal.tips.map((tp) => '<li>' + esc(tp) + '</li>').join('') + '</ul>', x.day === t)).join('') + '</div>' +
-      '<p class="fn">A good plate: half vegetables, a palm of protein and a fist of carbs.</p>';
-    if (replace && App.topLayer() && App.topLayer().querySelector('[data-dinners]')) { App.replaceSheet('<div data-dinners hidden></div>' + body); return; }
-    App.sheet('This week’s dinners', '<div data-dinners hidden></div>' + body, { foot: btn(icon('shuffle', 'ic-sm') + 'Shuffle', 'shuffleDinners', 'sheet', 'btn--block btn--tinted') });
-  }
-  function mealSheet(id) {
-    const m = D.MEALS.find((x) => x.id === id); if (!m) return;
-    const body = '<div class="sheet__lead"><div class="eyebrow">' + esc(cuisineName(m.c)) + '</div><h1 class="sheet__h1">' + esc(m.name) + '</h1></div>' +
-      '<div class="card"><div class="mini-h" style="margin-bottom:10px">Make it lighter</div><ul class="dots-list">' + m.tips.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></div>' +
-      '<p class="fn">A good plate: half vegetables, a palm of protein and a fist of carbs.</p>';
-    App.sheet('Dinner', body);
-  }
   function momentSheet(k) {
     const m = D.MOMENTS[k]; if (!m) return;
     const t = today(); const wk = weekStart(t);
@@ -808,15 +746,15 @@
     const tm = E.timeOf(plan.time);
     const body = '<div class="sheet__lead" style="justify-items:center;text-align:center"><span class="avatar" style="width:76px;height:76px;font-size:32px;margin:0">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</span><h1 class="sheet__h1">' + esc(p.name) + '</h1><p class="muted" style="font-size:15px">' + S().log.length + ' ' + App.plural(S().log.length, 'session') + ' · since ' + esc(sinceDate(S().log.length && S().log[0].date < (p.created || plan.created) ? S().log[0].date : p.created || plan.created)) + '</p></div>' +
       '<div class="sec"><div class="sec__label">Your plan</div>' + group([
-        cell({ act: 'openGym', title: 'Gym', value: esc(E.gymShort()) }),
+        cell({ act: 'openGyms', title: 'Gym', value: esc(E.gymShort()) }),
         cell({ title: 'Experience', value: esc((D.EXPERIENCE.find((x) => x.id === p.experience) || {}).label || '') }),
         cell({ title: 'Program', value: esc(E.SPLITS[plan.split] ? E.SPLITS[plan.split].name : 'Full body') }),
         cell({ title: 'Days', value: esc(plan.days.map((d) => DOW[d]).join(', ')) }),
         cell({ title: 'Time', value: esc(tm.label + ' · ' + plan.mins + ' min') }),
-        cell({ title: 'Dates', value: esc(fmtDate(plan.start, 'dm') + ' – ' + fmtDate(plan.end, 'dm')) }),
+        cell({ title: 'Started', value: esc(fmtDate(plan.start, 'dm') + (plan.start.slice(0, 4) !== today().slice(0, 4) ? ' ' + plan.start.slice(0, 4) : '')) }),
         cell({ act: 'editPlan', title: 'Change my plan', cls: 'cell--link', chev: false }),
       ]) + '</div>' +
-      '<div class="sec"><div class="sec__label">Goal and rewards</div>' + group([goalCell(), cell({ act: 'openRewards', tile: ['gift', 'bg-gold'], title: 'Rewards' }), cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: Object.keys(s.awards).length + ' of ' + D.AWARDS.length })], true) + '</div>' +
+      '<div class="sec"><div class="sec__label">Awards</div>' + group([cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: Object.keys(s.awards).filter((k) => D.AWARDS.some((x) => x.id === k)).length + ' of ' + D.AWARDS.length })], true) + '</div>' +
       '<div class="sec"><div class="sec__label">Health</div>' + group([cell({ title: 'Asthma', value: p.health.asthma ? 'Yes' : 'No' }), cell({ title: 'Health check', value: p.health.flag ? (p.health.cleared ? 'Cleared by GP' : 'See your GP first') : 'All clear' })]) +
         (p.health.asthma ? '<p class="fn">If your chest tightens: stop and use your reliever as your asthma action plan says. If it comes back a second time, stop for the day. In an emergency, call 000.</p>' : '') + '</div>' +
       (window.claude ? '' : '<div class="sec"><div class="sec__label">Coach</div>' + group([cell({ act: 'openCoachAI', tile: ['coach', 'bg-purple'], title: 'Claude coach', sub: App.AI.ready() ? 'On · ' + esc(App.AI.modelName()) : 'Off. The coach is a script until you add a key', value: App.AI.ready() ? '' : 'Set up' })], true) + '</div>') +
@@ -876,8 +814,6 @@
     if (it.t === 'award') {
       const a = D.AWARDS.find((x) => x.id === it.id); if (!a) return celebrate();
       html = '<div class="dialog"><div class="medal-wrap">' + App.medal(a.icon, a.metal, 124) + '</div><div class="eyebrow">New award</div><h2 class="dialog__title">' + esc(a.name) + '</h2><p class="dialog__text">' + esc(a.desc) + '</p>' + btn('Nice', 'closeLayer') + '</div>';
-    } else if (it.t === 'reward') {
-      html = '<div class="dialog"><div class="medal-wrap">' + App.medal('gift', 'gold', 124) + '</div><div class="eyebrow">Week ' + it.week + ' reward</div><h2 class="dialog__title">' + esc(it.text) + '</h2><p class="dialog__text">You earned it. Show this to whoever set it, and claim it.</p>' + btn('Claim it', 'closeLayer') + '</div>';
     } else return celebrate();
     const layer = App.openLayer(html, { dialog: true });
     App.sound('award'); App.haptic('success');
@@ -910,8 +846,8 @@
   App.Views = {
     ui: { cell, group, sec, header, cols, btn, disc, tile },
     shell, coachGlyph, discHtml, refreshCoach, refreshCam, setTyping, updateBubble, refreshBadge, animateBars,
-    previewSheet, sessionOptions, menuScanning, placeMenu, weekSheet, goalSheet, rewardsSheet, progressSheet, awardsSheet, awardInfo,
-    librarySheet, renderLib, lib, exerciseSheet, swapInSheet, gymSheet, kitSheet, packSheet, menuSheet, cuisinePickSheet, dinnersSheet, mealSheet, momentSheet,
+    previewSheet, sessionOptions, menuScanning, placeMenu, weekSheet, progressSheet, awardsSheet, awardInfo,
+    librarySheet, renderLib, lib, exerciseSheet, swapInSheet, kitSheet, gymLine, packSheet, menuSheet, cuisinePickSheet, momentSheet,
     profileSheet, installSheet, coachSheet, celebrate, foodAskSheet, dayWord, lookupSheet, lookupOpen, lookupProgress, lookupMessage, whereSheet, kcalText, openSearch, closeSearch, renderSearch, isSearchOpen: () => !!searchEl,
   };
 })();

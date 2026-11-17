@@ -28,11 +28,12 @@
     const slot = E.slotById(slotId); if (!slot) return;
     const plan = s.plan; const t = today(); let prevMove;
     if (E.slotDate(slot) !== t) { prevMove = s.moves[slot.id] || null; s.moves[slot.id] = t; }
-    const steps = [{ t: 'ready', checks: {} }, { t: 'cardio', role: 'warmup', id: plan.warmup.id, min: plan.warmup.min, elapsed: 0, runFrom: null }];
+    const wu = E.cardioAt(plan.warmup); const fin = E.cardioAt(plan.finisher);
+    const steps = [{ t: 'ready', checks: {} }, { t: 'cardio', role: 'warmup', id: wu.id, min: wu.min, elapsed: 0, runFrom: null }];
     E.exercisesFor(slot.key, slot.week, slot.id).forEach((e) => steps.push(exStep(e.id, e.base, e.sets, slot.id, e)));
-    if (plan.finisher && !s.trims[slot.id]) steps.push({ t: 'cardio', role: 'finisher', id: plan.finisher.id, min: plan.finisher.min, elapsed: 0, runFrom: null });
+    if (fin && !s.trims[slot.id]) steps.push({ t: 'cardio', role: 'finisher', id: fin.id, min: fin.min, elapsed: 0, runFrom: null });
     steps.push({ t: 'cooldown', ticks: {} });
-    s.active = { id: App.uid(), slot: slot.id, key: slot.key, week: slot.week, date: t, startedAt: Date.now(), gymId: plan.gymId, step: 0, steps };
+    s.active = { id: App.uid(), slot: slot.id, key: slot.key, week: slot.week, date: t, startedAt: Date.now(), gymId: (E.gym() || {}).id || plan.gymId, step: 0, steps };
     if (prevMove !== undefined) s.active.prevMove = prevMove;
     App.saveNow(); App.Coach.clear();
     App.closeLayer(true); App.Views.closeSearch();
@@ -43,7 +44,7 @@
     o = o || {};
     const sg = E.suggest(id, slotId, o);
     const sets = []; for (let i = 0; i < n; i++) sets.push({ w: sg.w, r: sg.r, done: false });
-    return { t: 'ex', id, base, sets, effort: null, firstFeel: null, mode: sg.mode, sgTitle: sg.title, sgWhy: sg.why, howOpen: !E.lastPerf(id), reps: o.reps || null, rest: o.rest || null, pair: o.pair || null, pairRole: o.pairRole || null, deload: !!o.deload, cap: o.cap || null, note: o.note || null };
+    return { t: 'ex', id, base, sets, effort: null, firstFeel: null, mode: sg.mode, sgTitle: sg.title, sgWhy: sg.why, howOpen: !E.lastPerf(id), reps: o.reps || null, rest: o.rest || null, pair: o.pair || null, pairRole: o.pairRole || null, deload: !!o.deload, cap: o.cap || null, note: o.note || null, planned: o.planned || null };
   }
   function partnerOf(st) { const a = S().active; return st && st.pair && a ? a.steps.find((x) => x !== st && x.t === 'ex' && x.pair === st.pair) || null : null; }
   function ssTag(st) { return 'ABCDEFG'.charAt(Number(st.pair.slice(1)) - 1) + (st.pairRole === 'a' ? '1' : '2'); }
@@ -161,6 +162,7 @@
       (partner ? '<button class="ssbar" data-act="sxGoPartner"><span class="sstag">' + ssTag(st) + '</span><span class="ssbar__text"><b>Superset with the ' + esc(App.lc(D.EX[partner.id].name)) + '.</b> ' + (st.pairRole === 'a' ? 'One set here, then straight there. Rest after both.' : 'Rest after this one, then back to the start.') + '</span>' + icon('swap', 'ic-sm') + '</button>' : '') +
       '</div><div class="sx__pane">' +
       coachLine(title, esc(st.sgWhy)) +
+      (st.planned && D.EX[st.planned] ? '<div class="callout sx-note">' + icon('swap') + '<div><b>Standing in for the ' + esc(App.lc(D.EX[st.planned].name)) + '.</b> ' + esc(E.gymShort()) + ' doesn’t have what it needs.</div></div>' : '') +
       (st.note || st.cap ? '<div class="callout callout--blue sx-note">' + icon('shield') + '<div><b>Coach’s note:</b> ' + esc([st.note, st.cap && D.EX[st.id].unit === 'kg' ? 'Keep it at ' + App.fmtKg(st.cap) + ' kg or under.' : ''].filter(Boolean).join(' ')) + '</div></div>' : '') +
       '<div data-sets>' + setsHtml(st, ex) + '</div>' +
       '<div data-firstfeel>' + firstFeelHtml(st, ex) + '</div>' +
@@ -400,13 +402,11 @@
     const ups = entry.ex.map((e) => { const p = e.effort ? E.predictNext(e.id, e.sets.map((x) => Object.assign({ done: true }, x)), e.effort, e.reps) : null; return p && p.up ? { id: e.id, text: p.text } : null; }).filter(Boolean);
     const prs = entry.prs || [];
     const nxt = E.nextOpen(App.addDays(today(), 1));
-    const pr = E.partnerRewards().find((r) => !r.open);
-    const left = pr ? Math.max(0, pr.need - tot.done) : 0;
     const titles = ['Session done.', 'That’s another one.', 'Nicely done.', 'Strong work.'];
     host.innerHTML = '<div class="summary" role="dialog" aria-label="Session complete"><div class="summary__inner">' +
       '<div class="summary__check">' + icon('check') + '</div>' +
-      '<div><div class="eyebrow">' + esc(plan.sessions[entry.key].name) + ' · ' + tot.done + ' of ' + tot.total + '</div><h1 class="summary__title">' + titles[(S().log.length - 1) % titles.length] + '</h1>' +
-        (pr ? '<p class="lead" style="margin-top:6px">' + (left ? left + ' more ' + App.plural(left, 'session') + ' until ' + esc(pr.text.charAt(0).toLowerCase() + pr.text.slice(1)) + '.' : 'You’ve unlocked a reward.') + '</p>' : '') + '</div>' +
+      '<div><div class="eyebrow">' + esc(plan.sessions[entry.key].name) + ' · session ' + S().log.length + '</div><h1 class="summary__title">' + titles[(S().log.length - 1) % titles.length] + '</h1>' +
+ + '</div>' +
       '<div class="stats"><div class="stat"><div class="stat__v" data-count="' + entry.mins + '">0</div><div class="stat__l">Minutes</div></div><div class="stat"><div class="stat__v" data-count="' + sets + '">0</div><div class="stat__l">Sets</div></div><div class="stat"><div class="stat__v" data-count="' + kg + '">0</div><div class="stat__l">kg lifted</div></div></div>' +
       (prs.length ? '<div class="sec"><div class="sec__label">' + prs.length + ' personal ' + App.plural(prs.length, 'record') + '</div><div class="group group--tiles">' + prs.map((r) => { const ex = D.EX[r.id]; const t = E.prText(r.id, r); return '<div class="cell"><span class="cell__tile bg-gold">' + icon('trophy') + '</span><span class="cell__main"><span class="cell__title">' + esc(ex.name) + '</span><span class="cell__sub">' + esc(t.title) + '</span></span><span class="cell__value t-gold" style="font-weight:600">' + esc(ex.unit === 'kg' ? App.fmtKg(r.w) + ' kg × ' + r.r : r.r + (ex.unit === 'sec' ? ' s' : ' reps')) + '</span></div>'; }).join('') + '</div></div>' : '') +
       (ups.length ? '<div class="sec"><div class="sec__label">Going up next time</div><div class="group group--tiles">' + ups.map((u) => '<div class="cell"><span class="cell__tile cell__tile--art">' + art(D.EX[u.id].art) + '</span><span class="cell__main"><span class="cell__title">' + esc(D.EX[u.id].name) + '</span></span><span class="cell__value t-green" style="font-weight:600">' + esc(u.text) + '</span></div>').join('') + '</div></div>' : '') +
@@ -563,7 +563,7 @@
     sxNotHere() {
       const st = curEx(); if (!st) return; const ex = D.EX[st.id]; const g = E.gym();
       const tag = ex.eq.find((t) => !['dumbbells', 'flat_bench', 'adjustable_bench', 'mats', 'barbell', 'plates', 'pullup_bar'].includes(t));
-      if (tag) g.kit = g.kit.filter((t) => t !== tag); else { g.noEx = g.noEx || []; if (!g.noEx.includes(st.id)) g.noEx.push(st.id); }
+      if (tag) { g.kit = g.kit.filter((t) => t !== tag); g.removed = (g.removed || []).filter((x) => x !== tag).concat([tag]); } else { g.noEx = g.noEx || []; if (!g.noEx.includes(st.id)) g.noEx.push(st.id); }
       g.edited = true;
       const changed = E.fixPlanForKit();
       const a = S().active; const inSession = a.steps.filter((x) => x.t === 'ex').map((x) => x.id);
@@ -572,8 +572,8 @@
       if (to) Object.assign(st, exStep(to, st.base, st.sets.length, a.slot, keep(st)));
       App.save(); render();
       const what = tag ? 'the ' + D.EQUIP_NAME[tag].toLowerCase() : 'the ' + App.lc(ex.name);
-      App.Coach.note(E.gymShort() + ': no ' + what.replace(/^the /, '') + '. Plan updated' + (changed.length ? ' (' + changed.length + ' ' + App.plural(changed.length, 'swap') + ')' : ''));
-      App.toast('Got it. Your plan won’t use ' + what + ' again.', 'check');
+      App.Coach.note(E.gymShort() + ': no ' + what.replace(/^the /, '') + (changed.length ? '. ' + changed.length + ' ' + App.plural(changed.length, 'exercise') + ' stand in here' : ''));
+      App.toast('Got it. Sessions at ' + E.gymShort() + ' won’t use ' + what + '.', 'check');
     },
     sxDone(el) { logSet(Number(el.dataset.v)); },
     sxAddSet() { const st = curEx(); const last = st.sets[st.sets.length - 1]; st.sets.push({ w: last.w, r: last.r, done: false }); App.save(); refreshSets(st.sets.length - 1); App.haptic(); },

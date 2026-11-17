@@ -7,6 +7,7 @@
   const { today, addDays, weekStart, rel, fmtDate } = App;
 
   App.S = migrate(App.load());
+  if (tidy(App.S)) App.saveNow();
   App.Import.register(App.S.customEx);
   backfillRecords();
   { const msg = App.Session.expireStale(); if (msg) setTimeout(() => App.Coach.note(msg), 0); }
@@ -40,11 +41,68 @@
       p.cuisines = Array.from(new Set((p.dishes || []).map((d) => map[d]).filter(Boolean)));
       if (!p.cuisines.length) p.cuisines = ['aussie', 'italian', 'chinese'];
       delete p.dishes; delete p.cook;
-      ['plan', 'log', 'food', 'events', 'checkins', 'moves', 'skips', 'exSettings', 'swaps', 'rewards', 'opened', 'settings', 'dev'].forEach((k) => { if (old[k] != null) st[k] = old[k]; });
+      ['plan', 'log', 'food', 'events', 'checkins', 'moves', 'skips', 'exSettings', 'swaps', 'settings', 'dev'].forEach((k) => { if (old[k] != null) st[k] = old[k]; });
       Object.keys(st.food).forEach((d) => { st.food[d] = { s: st.food[d].s }; });
       st.profile = p;
       return st;
     } catch (e) { return st; }
+  }
+
+  // Changes to the app over time, applied to what's already saved on this phone.
+  function gymsOf(st) { return [st.profile && st.profile.gym].concat(st.gyms || []).filter((g) => g && typeof g === 'object'); }
+  function tidy(st) {
+    let changed = false;
+    // partner rewards, weeknight dinners and the finish-line awards are gone; training is continuous
+    ['rewards', 'opened', 'dinnerSeed'].forEach((k) => { if (k in st) { delete st[k]; changed = true; } });
+    if (st.awards) ['halfway', 'finish'].forEach((k) => { if (st.awards[k]) { delete st.awards[k]; changed = true; } });
+    // "Seated cable row" is the seated row machine now
+    if (renameExercise(st, 'seated_row', 'machine_row')) changed = true;
+    // your own exercises: tidy names, and one the library already has becomes the library's
+    Object.keys(st.customEx || {}).forEach((id) => {
+      const c = st.customEx[id]; if (!c || !c.name) return;
+      const lib = App.Import.byName(c.name);
+      if (lib && lib !== id) { renameExercise(st, id, lib); delete st.customEx[id]; changed = true; return; }
+      const nm = App.Import.tidyName(c.name); if (nm && nm !== c.name) { c.name = nm; changed = true; }
+    });
+    gymsOf(st).forEach((g) => {
+      if (Array.isArray(g.kit) && g.kit.includes('seated_row_machine')) { g.kit = g.kit.filter((t) => t !== 'seated_row_machine'); if (!g.kit.includes('machine_row')) g.kit.push('machine_row'); changed = true; }
+    });
+    return changed;
+  }
+  // Fold one exercise into another everywhere it's saved: history (one entry per session),
+  // the plan and your own program, swaps, targets, machine settings, a session in progress,
+  // custom exercises built on it and the gyms. Records are worked out again if history moved.
+  function renameExercise(st, from, to) {
+    let hit = false; let logHit = false;
+    const sw = (id) => (id === from ? ((hit = true), to) : id);
+    (st.log || []).forEach((l) => {
+      const merged = [];
+      (l.ex || []).forEach((e) => {
+        if (e.id === from) logHit = true;
+        e.id = sw(e.id); const same = merged.find((x) => x.id === e.id);
+        if (same) same.sets = same.sets.concat(e.sets || []); else merged.push(e);
+      });
+      l.ex = merged;
+    });
+    const fixSession = (sess) => {
+      if (!sess) return;
+      if (Array.isArray(sess.items)) {
+        sess.items.forEach((it) => { it.id = sw(it.id); if (it.alt) it.alt = sw(it.alt); });
+        sess.items = sess.items.filter((it, i, a) => a.findIndex((x) => x.id === it.id) === i);
+        const pairs = {}; sess.items.forEach((it) => { if (it.pair) pairs[it.pair] = (pairs[it.pair] || 0) + 1; });
+        sess.items.forEach((it) => { if (it.pair && pairs[it.pair] < 2) { delete it.pair; delete it.pairRole; } });
+      }
+      if (Array.isArray(sess.ex)) sess.ex = sess.ex.map(sw).filter((x, i, a) => a.indexOf(x) === i);
+    };
+    if (st.plan && st.plan.sessions) Object.keys(st.plan.sessions).forEach((k) => fixSession(st.plan.sessions[k]));
+    if (st.profile && st.profile.program && Array.isArray(st.profile.program.sessions)) st.profile.program.sessions.forEach(fixSession);
+    if (st.swaps) { const n = {}; Object.keys(st.swaps).forEach((k) => { if (k === from) { hit = true; return; } const a = sw(k); const b = sw(st.swaps[k]); if (a !== b && n[a] == null) n[a] = b; }); st.swaps = n; }
+    ['targets', 'exSettings'].forEach((key) => { const o = st[key]; if (o && o[from]) { hit = true; if (!o[to]) o[to] = o[from]; delete o[from]; } });
+    if (st.active && Array.isArray(st.active.steps)) st.active.steps.forEach((x) => { if (x.id) x.id = sw(x.id); if (x.base) x.base = sw(x.base); });
+    if (st.customEx) Object.keys(st.customEx).forEach((k) => { if (st.customEx[k] && st.customEx[k].base === from) { st.customEx[k].base = to; hit = true; } });
+    gymsOf(st).forEach((g) => { if (Array.isArray(g.noEx)) g.noEx = g.noEx.map(sw).filter((x, i, a) => a.indexOf(x) === i); });
+    if (logHit) { (st.log || []).forEach((l) => { l.prs = null; }); st.seen = st.seen || {}; st.seen.prBackfill = false; }
+    return hit || logHit;
   }
 
   // Sessions logged before records existed: work out which sets were records at the time.
@@ -75,7 +133,7 @@
       app.innerHTML = '<div class="scroller" data-scroller>' + App.OB.render() + '</div>';
     } else {
       if (!S().plan) S().plan = E.buildPlan(S().profile);
-      if (E.ensureAhead()) { App.save(); if (App.Coach && S().chat.length) App.Coach.note('Your plan’s been extended: 8 more weeks, same sessions'); }
+      if (E.ensureAhead()) App.save(); // training carries on: more weeks are added before they run out
       app.className = 'app app--tabs' + (App.tab === 'coach' ? ' app--coach' : '');
       app.innerHTML = App.Views.shell();
       App.entering = false;
@@ -174,9 +232,6 @@
     if (s.events.some((e) => e.type === 'eatout')) give('smartorder');
     if (E.streakWeeks() >= 3) give('streak3');
     if (s.log.length >= 10) give('ten');
-    if (tot.total && tot.done >= Math.ceil(tot.total / 2)) give('halfway');
-    if (tot.total && tot.done >= tot.total) give('finish');
-    E.partnerRewards().forEach((r) => { if (!r.open && tot.done >= r.need) { s.opened[r.week] = t; if (!silent) App.Q.push({ t: 'reward', week: r.week, text: r.text }); } });
     App.save();
   };
 
@@ -279,7 +334,6 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') App.saveNow(); });
   window.addEventListener('pagehide', () => App.saveNow());
 
-  let rewardT = null;
   const fake = (v, label) => ({ dataset: { v: v == null ? '' : String(v), label: label || '' } });
   function after(fn) { setTimeout(fn, App.topLayer() ? 300 : 0); }
 
@@ -331,9 +385,7 @@
 
     // Progress and goals
     openWeek() { App.Views.weekSheet(); },
-    openGoal() { E.track('goal'); App.closeLayer(true); App.Views.goalSheet(); },
     editGoal() { App.ACT.editPlan(fake('goals')); },
-    openRewards() { E.track('rewards'); App.Views.rewardsSheet(); },
     openProgress() { E.track('progress'); App.closeLayer(true); App.Views.progressSheet(); },
     openAwards() { E.track('awards'); App.Views.awardsSheet(); },
     awardInfo(el) { App.Views.awardInfo(el.dataset.v); },
@@ -355,11 +407,12 @@
     scrollTop() { App.scrollTo(0, true); },
     kitToggle(el) {
       const g = E.gym(); const t = el.dataset.v; const i = g.kit.indexOf(t);
-      if (i >= 0) g.kit.splice(i, 1); else g.kit.push(t);
+      g.removed = (g.removed || []).filter((x) => x !== t);
+      if (i >= 0) { g.kit.splice(i, 1); g.removed.push(t); } else g.kit.push(t);
       g.edited = true; App.haptic(); App.sound('tick');
       const changed = E.fixPlanForKit();
       App.save(); App.Views.kitSheet(true); App.render();
-      if (changed.length) { App.toast('Plan updated: ' + App.lc(D.EX[changed[0][1]].name) + (changed.length > 1 ? ' and ' + (changed.length - 1) + ' more' : '') + ' swapped in', 'swap'); changed.forEach((c) => App.Coach.note(D.EX[c[0]].name + ' swapped for ' + App.lc(D.EX[c[1]].name))); }
+      if (changed.length) App.toast('At ' + E.gymShort() + ': ' + App.lc(D.EX[changed[0][1]].name) + ' stands in for the ' + App.lc(D.EX[changed[0][0]].name) + (changed.length > 1 ? ', and ' + (changed.length - 1) + ' more' : ''), 'swap');
     },
     kitHas(el) {
       const [tags, id] = el.dataset.v.split('|'); const g = E.gym();
@@ -373,7 +426,7 @@
       App.Coach.photoIn(f, el.dataset.v || ''); el.value = '';
     },
     openExercise(el) { E.track('ex:' + el.dataset.v); App.Views.exerciseSheet(el.dataset.v); },
-    openGym() { App.Views.gymSheet(); },
+    openGym() { const g = E.gym(); if (g) App.Gym.detailSheet(g.id); },
     openPack() { App.Views.packSheet(); },
     packToggle(el) {
       const key = 'pack:' + today(); S().seen[key] = S().seen[key] || {};
@@ -441,12 +494,6 @@
         App.Views.menuSheet(name, cu, true);
       });
     },
-    openDinners() { E.track('dinners'); App.Views.dinnersSheet(); },
-    shuffleDinners(el) {
-      S().dinnerSeed++; App.save(); App.haptic(); App.sound('tick');
-      if (el.dataset.v === 'sheet') { App.Views.dinnersSheet(true); App.render(); } else { App.render(); App.toast('New dinners picked', 'shuffle'); }
-    },
-    openMeal(el) { App.Views.mealSheet(el.dataset.v); },
     openMoment(el) { E.track('moment:' + el.dataset.v); App.Views.momentSheet(el.dataset.v); },
     momentAdd(el) {
       const [type, d] = el.dataset.v.split('|'); const m = D.MOMENTS[type];
@@ -517,7 +564,6 @@
   Object.assign(App.IN, {
     search(el) { App.Views.renderSearch(el.value); },
     libQ(el) { App.Views.lib.q = el.value; App.Views.renderLib(); },
-    reward(el) { S().rewards = Object.assign({}, S().rewards || D.DEFAULT_REWARDS); S().rewards[el.dataset.w] = el.value; App.save(); clearTimeout(rewardT); rewardT = setTimeout(() => App.render(), 400); },
   });
 
   // ── Example progress (prototype tool) ─────────────────────────────────────
@@ -527,7 +573,7 @@
     s.dev.offset = real - 15;
     s.plan = E.buildPlan(Object.assign({}, p, { start: 'now' }));
     s.dev.offset = real;
-    Object.assign(s, { log: [], moves: {}, skips: {}, trims: {}, eases: {}, food: {}, events: [], active: null, opened: {}, awards: {}, chat: [], chatPosted: {}, chatRead: 0 });
+    Object.assign(s, { log: [], moves: {}, skips: {}, trims: {}, eases: {}, food: {}, events: [], active: null, awards: {}, chat: [], chatPosted: {}, chatRead: 0 });
     delete s.chatExpect; s.seen = {};
     const t = today();
     const past = s.plan.slots.filter((x) => x.date < t);
