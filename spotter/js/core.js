@@ -38,6 +38,7 @@
       settings: { sound: true, theme: 'system' },
       dev: { offset: 0 },
       seen: {},
+      ironlog: null,       // last update from Iron Log {synced, last, count}
     };
   }
   function load() {

@@ -146,7 +146,8 @@
       '<div class="mini-h">The move</div><ol class="steps">' + ex.move.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>' +
       (ex.feel ? '<div class="mini-h">You should feel it</div><p style="font-size:16px">' + esc(ex.feel) + '</p>' : '') +
       (ex.avoid && ex.avoid.length ? '<div class="mini-h">Avoid</div><ul class="dots-list">' + ex.avoid.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul>' : '');
-    const body =
+    // two panes on a wide screen: the machine on the left, your sets on the right
+    const body = '<div class="sx__panes"><div class="sx__pane">' +
       '<div class="photo">' + (saved.photo ? '<img src="' + saved.photo + '" alt="Your photo of the ' + esc(ex.name) + '">' : art(ex.art)) +
         (saved.photo ? '' : '<div class="photo__cap">' + icon('pin') + '<span>Add your own photo of it at ' + esc(gym ? gym.short || gym.name : 'your gym') + '</span></div>') +
         '<button class="photo__add" data-act="sxPhoto">' + icon('camera') + (saved.photo ? 'Change' : 'Add photo') + '</button></div>' +
@@ -154,6 +155,7 @@
       '<div class="ex-h"><div class="eyebrow">' + esc(ex.focus || '') + '</div><h1 class="ex-h__title">' + esc(ex.name) + '</h1></div>' +
       (saved.seat ? '<button class="callout callout--blue" data-act="sxSettings" style="width:100%;text-align:left">' + icon('sliders') + '<div style="flex:1"><b>Your settings:</b> ' + esc(saved.seat) + '</div></button>' : '') +
       (partner ? '<button class="ssbar" data-act="sxGoPartner"><span class="sstag">' + ssTag(st) + '</span><span class="ssbar__text"><b>Superset with the ' + esc(App.lc(D.EX[partner.id].name)) + '.</b> ' + (st.pairRole === 'a' ? 'One set here, then straight there. Rest after both.' : 'Rest after this one, then back to the start.') + '</span>' + icon('swap', 'ic-sm') + '</button>' : '') +
+      '</div><div class="sx__pane">' +
       coachLine(title, esc(st.sgWhy)) +
       '<div data-sets>' + setsHtml(st, ex) + '</div>' +
       '<div data-firstfeel>' + firstFeelHtml(st, ex) + '</div>' +
@@ -162,7 +164,7 @@
         App.Views.discHtml('how-' + st.id, 'How to do it', how, st.howOpen, ['info', 'bg-blue']) +
         '<button class="cell" data-act="sxSettings"><span class="cell__tile bg-ink">' + icon('sliders') + '</span><span class="cell__main"><span class="cell__title">' + (saved.seat ? 'My settings' : 'Save my settings') + '</span><span class="cell__sub">' + esc(saved.seat || 'Seat and pad positions for next time') + '</span></span>' + icon('right', 'cell__chev') + '</button>' +
         '<button class="cell" data-act="sxSwap"><span class="cell__tile bg-accent">' + icon('swap') + '</span><span class="cell__main"><span class="cell__title">Machine taken?</span><span class="cell__sub">Swap for one that works the same muscles</span></span>' + icon('right', 'cell__chev') + '</button>' +
-      '</div>';
+      '</div></div></div>';
     const last = a.step === a.steps.length - 2;
     const next = st.sets.findIndex((x) => !x.done);
     const foot = allDone

@@ -95,14 +95,26 @@
     return { log, program: { source: 'Iron Log', sessions, next, count: log.length, first: log.length ? log[0].date : '' }, customEx, days, count: log.length, first: log.length ? log[0].date : '', last: lastDate, unknown };
   }
 
+  // The same workout logged in both apps (you're running them side by side for a while):
+  // same day, and the same session or mostly the same exercises.
+  function sameWorkout(a, b) {
+    if (a.date !== b.date) return false;
+    if (a.key && a.key === b.key) return true;
+    const ids = new Set(b.ex.map((e) => e.id)); const both = a.ex.filter((e) => ids.has(e.id)).length;
+    return both >= Math.max(2, Math.ceil(Math.min(a.ex.length, b.ex.length) / 2));
+  }
+
   // Put the history into the saved state: merged with anything already logged, with
-  // personal records worked out session by session.
+  // personal records worked out session by session. Returns the sessions it added.
   function apply(imp) {
     const s = App.S;
     s.customEx = Object.assign({}, s.customEx || {}, imp.customEx);
     register(s.customEx);
     const have = new Set(s.log.map((l) => l.id));
-    const all = s.log.concat(imp.log.filter((l) => !have.has(l.id)).map((l) => Object.assign({}, l, { ex: l.ex.map((e) => Object.assign({}, e, { sets: e.sets.map((x) => Object.assign({}, x)) })) })));
+    const mine = s.log.filter((l) => !l.imported);
+    const added = imp.log.filter((l) => !have.has(l.id) && !mine.some((m) => sameWorkout(m, l)))
+      .map((l) => Object.assign({}, l, { ex: l.ex.map((e) => Object.assign({}, e, { sets: e.sets.map((x) => Object.assign({}, x)) })) }));
+    const all = s.log.concat(added);
     all.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     all.forEach((entry, i) => {
       if (entry.prs) return;
@@ -112,9 +124,39 @@
     s.log = all; s.seen.prBackfill = true;
     // the gym has what you've been using there
     const g = s.profile && s.profile.gym;
-    if (g) imp.log.forEach((l) => l.ex.forEach((e) => (D.EX[e.id] ? D.EX[e.id].eq : []).forEach((t) => { if (!g.kit.includes(t)) g.kit.push(t); })));
+    if (g) added.forEach((l) => l.ex.forEach((e) => (D.EX[e.id] ? D.EX[e.id].eq : []).forEach((t) => { if (!g.kit.includes(t)) g.kit.push(t); })));
+    s.ironlog = { synced: App.today(), last: imp.last || '', count: imp.count };
+    resync();
     App.checkAwards(true);
     App.saveNow();
+    return added;
+  }
+
+  // With your own program, sessions done in Iron Log count in the plan: each fills the
+  // planned session on its day, and the sessions still ahead carry on in order from the
+  // last one you did, wherever you logged it.
+  function resync() {
+    const s = App.S; const plan = s.plan; const E = App.E;
+    if (!plan || !plan.own || s.active) return;
+    s.log.forEach((l) => {
+      if (!l.imported || l.slot || l.date < plan.start || !plan.sessions[l.key]) return;
+      const sl = plan.slots.find((x) => E.slotDate(x) === l.date && !E.isDone(x) && !E.isSkipped(x));
+      if (sl) { sl.key = l.key; l.slot = sl.id; l.week = sl.week; }
+    });
+    const last = s.log.slice().reverse().find((l) => plan.sessions[l.key]); if (!last) return;
+    const after = last.date >= App.today() ? last.date : App.addDays(App.today(), -1);
+    let i = plan.order.indexOf(last.key);
+    E.openSlots().filter((sl) => E.slotDate(sl) > after).forEach((sl) => { i = (i + 1) % plan.order.length; sl.key = plan.order[i]; });
+  }
+
+  // "Update from Iron Log": bring in what you've logged there since, without going
+  // through the questions again.
+  function sync(file) {
+    return readFile(file).then((imp) => {
+      const added = apply(imp);
+      const nx = App.E.upNext();
+      return { added: added.length, next: nx && nx.slot ? App.E.sessionName(nx.slot) : '' };
+    });
   }
 
   function readFile(file) {
@@ -122,5 +164,5 @@
       .then((txt) => parseIronLog(JSON.parse(txt)));
   }
 
-  App.Import = { MAP, register, parseIronLog, apply, readFile };
+  App.Import = { MAP, register, parseIronLog, apply, resync, sync, readFile };
 })();

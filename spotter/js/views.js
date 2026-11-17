@@ -12,13 +12,16 @@
   const chev = () => icon('right', 'cell__chev');
   function tile(ic, bg) { return '<span class="cell__tile ' + bg + '">' + icon(ic) + '</span>'; }
   function cell(o) {
-    const tag = o.act ? 'button' : 'div';
+    const tag = o.tag || (o.act ? 'button' : 'div');
     const lead = o.tile ? tile(o.tile[0], o.tile[1]) : o.art ? '<span class="cell__tile cell__tile--art">' + art(o.art) + '</span>' : (o.lead || '');
     return '<' + tag + ' class="cell' + (o.cls ? ' ' + o.cls : '') + '"' + (o.act ? ' data-act="' + o.act + '"' + (o.v != null ? ' data-v="' + esc(o.v) + '"' : '') : '') + (o.attrs || '') + '>' + lead +
       '<span class="cell__main"><span class="cell__title">' + o.title + '</span>' + (o.sub ? '<span class="cell__sub">' + o.sub + '</span>' : '') + '</span>' +
-      (o.value != null && o.value !== '' ? '<span class="cell__value">' + o.value + '</span>' : '') + (o.trail || '') + (o.act && o.chev !== false ? chev() : '') + '</' + tag + '>';
+      (o.value != null && o.value !== '' ? '<span class="cell__value">' + o.value + '</span>' : '') + (o.trail || '') + ((o.act || o.tag) && o.chev !== false ? chev() : '') + '</' + tag + '>';
   }
   function group(cells, tiles) { const c = cells.filter(Boolean); return c.length ? '<div class="group' + (tiles ? ' group--tiles' : '') + '">' + c.join('') + '</div>' : ''; }
+  // A page in two columns when there's room (an unfolded iPhone Duo, an iPad); on a phone
+  // the columns melt away and it reads top to bottom in the same order.
+  function cols(a, b) { return '<div class="page__col">' + a + '</div><div class="page__col">' + b + '</div>'; }
   function sec(title, aside, inner) { return '<section class="sec"><div class="sec__h"><h2 class="sec__title">' + title + '</h2>' + (aside || '') + '</div>' + inner + '</section>'; }
   // Disclosure rows: the app's dropdowns. Open state lives for the session.
   App.discOpen = App.discOpen || {};
@@ -75,10 +78,10 @@
     const p = S().profile;
     let h = header('Today', fmtDate(today(), 'long')) + '<div class="page">';
     if (p.health.flag && !p.health.cleared) h += '<div class="callout">' + icon('shield') + '<div><b>Check in with your GP first.</b> You answered yes to a health question. Once they’ve given you the all-clear, you’re ready to start.<div><button class="btn btn--sm btn--tinted" data-act="healthCleared">I’ve been cleared</button></div></div></div>';
-    h += '<section class="sec">' + upNextCard() + '</section>';
-    h += '<section class="sec" data-coach-slot>' + coachCard() + '</section>';
-    h += sec('This week', '<span class="sec__aside">Week ' + curWeekNo() + ' of ' + S().plan.weeks + '</span>', weekCard());
-    h += '<section class="sec">' + group([goalCell(), rewardCell(), installCell()], true) + '</section>';
+    h += cols('<section class="sec">' + upNextCard() + '</section>' +
+      '<section class="sec" data-coach-slot>' + coachCard() + '</section>',
+      sec('This week', '<span class="sec__aside">Week ' + curWeekNo() + ' of ' + S().plan.weeks + '</span>', weekCard()) +
+      '<section class="sec">' + group([goalCell(), rewardCell(), installCell()], true) + '</section>');
     return h + '</div>';
   }
   function upNextCard() {
@@ -191,7 +194,7 @@
     const inner = week.length
       ? group(week.map((sl) => { const st = slotState(sl); return cell({ act: 'previewSession', v: sl.id, lead: slotDot(sl, st), title: esc(E.sessionName(sl)), sub: esc(DOW_LONG[App.dow(E.slotDate(sl))] + ' · ' + plan.sessions[sl.key].title), value: STATE_WORD[st] }); }), true)
       : '<div class="callout callout--blue">' + icon('calendar') + '<div>' + (plan.start > t ? 'Your plan starts ' + esc(fmtDate(plan.start, 'long')) + '.' : 'No sessions this week.') + '</div></div>';
-    h += sec('This week', '<span class="sec__aside">Week ' + curWeekNo() + ' of ' + plan.weeks + '</span>', inner);
+    let a = sec('This week', '<span class="sec__aside">Week ' + curWeekNo() + ' of ' + plan.weeks + '</span>', inner);
     // The whole plan, a week per dropdown.
     const weeks = [];
     for (let w = 1; w <= plan.weeks; w++) {
@@ -203,27 +206,37 @@
       const panel = slots.length ? slots.map((sl) => { const st = slotState(sl); return '<button class="slotline" data-act="previewSession" data-v="' + sl.id + '">' + slotDot(sl, st) + '<span class="cell__main"><span class="cell__title">' + esc(E.sessionName(sl)) + '</span><span class="cell__sub">' + esc(fmtDate(E.slotDate(sl), 'short')) + '</span></span><span class="cell__value" style="font-size:15px">' + STATE_WORD[st] + '</span>' + chev() + '</button>'; }).join('') : '<p class="muted" style="font-size:15px">Rest week.</p>';
       weeks.push(disc('week' + w, head, panel));
     }
-    h += sec('Your plan', '<span class="sec__aside">' + esc(E.phaseFor(curWeekNo(), plan).name) + '</span>', '<div class="group">' + weeks.join('') + '</div>');
+    a += sec('Your plan', '<span class="sec__aside">' + esc(E.phaseFor(curWeekNo(), plan).name) + '</span>', '<div class="group">' + weeks.join('') + '</div>');
     // Progress, summarised; the detail is a tap away.
     const tot = E.totals(); const streak = E.streakWeeks(); const best = bestLift();
     const earned = Object.keys(s.awards).length;
-    h += sec('Progress', '<button class="sec__link" data-act="openProgress">See all</button>', group([
+    let b = sec('Progress', '<button class="sec__link" data-act="openProgress">See all</button>', group([
       cell({ act: 'openProgress', tile: ['check', 'bg-accent'], title: 'Sessions', value: tot.done + ' of ' + tot.total }),
       cell({ act: 'streakInfo', tile: ['flame', 'bg-red'], title: 'Weeks on target', value: streak + ' in a row' }),
       best ? cell({ act: 'openExercise', v: best.id, tile: ['trend', 'bg-green'], title: esc(D.EX[best.id].name), sub: 'Your biggest jump so far', value: '<span class="delta">+' + App.fmtKg(best.d) + ' kg</span>' }) : '',
       cell({ act: 'openProgress', tile: ['trophy', 'bg-gold'], title: 'Personal records', value: String(E.prCount()) }),
       cell({ act: 'openAwards', tile: ['star', 'bg-gold'], title: 'Awards', value: earned + ' of ' + D.AWARDS.length }),
     ], true));
-    h += sec('More', '', group([
+    b += sec('More', '', group([
       cell({ act: 'openLibrary', tile: ['search', 'bg-blue'], title: 'Exercises', sub: Object.keys(D.EX).length + ' moves to search, with how to do each one' }),
       cell({ act: 'openGym', tile: ['pin', 'bg-purple'], title: 'Your gym', sub: esc(E.gymName()) + ' · equipment' }),
       cell({ act: 'openPack', tile: ['bag', 'bg-teal'], title: 'Pack your bag', sub: 'What to bring each session' }),
+      fromIronLog() ? ironLogCell() : '',
     ], true));
-    return h + '</div>';
+    return h + cols(a, b) + '</div>';
   }
   function bestLift() {
     const h = E.liftHistory();
     return Object.keys(h).filter((id) => D.EX[id].unit === 'kg' && !D.EX[id].assist && h[id].length > 1).map((id) => ({ id, d: h[id][h[id].length - 1].v - h[id][0].v })).filter((x) => x.d > 0).sort((a, b) => b.d - a.d)[0] || null;
+  }
+
+  // Bringing in sessions logged in Iron Log, while you use both apps.
+  function fromIronLog() { const s = S(); return !!(s.ironlog || s.log.some((l) => l.imported === 'ironlog')); }
+  function ironLogCell() {
+    const s = S(); const had = fromIronLog();
+    return cell({ tag: 'label', tile: ['history', 'bg-ink'], title: had ? 'Update from Iron Log' : 'Bring your Iron Log history',
+      sub: had ? (s.ironlog && s.ironlog.last ? 'Up to ' + esc(fmtDate(s.ironlog.last, 'dm')) + '. ' : '') + 'Adds sessions you’ve logged there since.' : 'Sessions, records and your program',
+      trail: '<input type="file" class="vh" data-change="' + (had && s.profile ? 'ilSync' : 'obImport') + '" aria-label="Iron Log backup file">' });
   }
 
   // ── Eat ───────────────────────────────────────────────────────────────────
@@ -231,10 +244,9 @@
   function eatView() {
     const w = E.week();
     let h = header('Eat', App.fmtKg(w.eat) + ' of ' + w.eatMax + ' good days this week') + '<div class="page">';
-    h += '<section class="sec">' + foodCard() + '</section>';
-    h += sec('Eating out', '', eatOutBox() + placesList());
-    h += sec('This week’s dinners', '<button class="sec__link" data-act="shuffleDinners">Shuffle</button>', dinnersList());
-    h += sec('Big meal coming up?', '', momentsList());
+    h += cols('<section class="sec">' + foodCard() + '</section>' + sec('Eating out', '', eatOutBox() + placesList()),
+      sec('This week’s dinners', '<button class="sec__link" data-act="shuffleDinners">Shuffle</button>', dinnersList()) +
+      sec('Big meal coming up?', '', momentsList()));
     return h + '</div>';
   }
   function foodCard() {
@@ -679,7 +691,7 @@
   function profileSheet() {
     const s = S(); const p = s.profile; const plan = s.plan; const theme = s.settings.theme;
     const tm = E.timeOf(plan.time);
-    const body = '<div class="sheet__lead" style="justify-items:center;text-align:center"><span class="avatar" style="width:76px;height:76px;font-size:32px;margin:0">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</span><h1 class="sheet__h1">' + esc(p.name) + '</h1><p class="muted" style="font-size:15px">' + E.totals().done + ' ' + App.plural(E.totals().done, 'session') + ' · since ' + esc(fmtDate(p.created || plan.created, 'dm')) + '</p></div>' +
+    const body = '<div class="sheet__lead" style="justify-items:center;text-align:center"><span class="avatar" style="width:76px;height:76px;font-size:32px;margin:0">' + esc((p.name || '?').charAt(0).toUpperCase()) + '</span><h1 class="sheet__h1">' + esc(p.name) + '</h1><p class="muted" style="font-size:15px">' + S().log.length + ' ' + App.plural(S().log.length, 'session') + ' · since ' + esc(sinceDate(S().log.length && S().log[0].date < (p.created || plan.created) ? S().log[0].date : p.created || plan.created)) + '</p></div>' +
       '<div class="sec"><div class="sec__label">Your plan</div>' + group([
         cell({ act: 'openGym', title: 'Gym', value: esc(E.gymShort()) }),
         cell({ title: 'Experience', value: esc((D.EXPERIENCE.find((x) => x.id === p.experience) || {}).label || '') }),
@@ -697,9 +709,8 @@
         '<div class="cell" style="display:grid;gap:10px"><span class="cell__title">Appearance</span><div class="seg">' + [['system', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']].map((o) => '<button class="seg__btn' + (theme === o[0] ? ' is-on' : '') + '" data-act="setTheme" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div></div>',
         isIOS() && !standalone() && !window.claude ? cell({ act: 'openInstall', title: 'Add to Home Screen' }) : '',
       ]) + '</div>' +
-      '<div class="sec"><div class="sec__label">Your data</div><div class="group">' + disc('backup', cell({ act: 'toggleDisc', v: 'backup', title: 'Back up or restore' }),
+      '<div class="sec"><div class="sec__label">Your data</div>' + group([ironLogCell()], true) + '<div class="group">' + disc('backup', cell({ act: 'toggleDisc', v: 'backup', title: 'Back up or restore' }),
         '<p class="muted" style="font-size:15px">Everything stays on this phone. Copy a backup code and keep it somewhere safe.</p><div class="inrow"><button class="btn btn--sm btn--tinted" data-act="copyBackup">' + icon('copy', 'ic-sm') + 'Copy backup code</button></div>' +
-        '<label class="btn btn--sm btn--tinted" style="align-self:flex-start">' + icon('history', 'ic-sm') + 'Import from Iron Log<input type="file" class="vh" data-change="obImport"></label>' +
         '<label class="vh" for="restoreCode">Backup code</label><textarea id="restoreCode" class="input" placeholder="Paste a backup code to restore" style="min-height:76px;font-size:15px"></textarea><div><button class="btn btn--sm btn--tinted" data-act="restoreBackup">Restore</button></div>') + '</div></div>' +
       '<div class="sec"><div class="sec__label">Prototype tools</div><div class="group">' + disc('tools', cell({ act: 'toggleDisc', v: 'tools', title: 'Try it out faster' }),
         '<div class="field"><div class="field__label">Pretend today is</div><div class="seg">' + [[0, 'Today'], [1, '+1 day'], [3, '+3 days'], [7, '+1 week']].map((o) => '<button class="seg__btn' + (s.dev.offset === o[0] ? ' is-on' : '') + '" data-act="timeTravel" data-v="' + o[0] + '">' + o[1] + '</button>').join('') + '</div></div>' +
@@ -707,9 +718,11 @@
       '<p class="fn">Spotter prototype. General fitness and healthy-eating guidance only; it doesn’t replace advice from your GP. Machine photos, notifications and a real coach on call come with the full app.</p>';
     App.sheet('Profile', body);
   }
+  function sinceDate(d) { return fmtDate(d, 'dm') + (d.slice(0, 4) !== today().slice(0, 4) ? ' ' + d.slice(0, 4) : ''); }
   function installSheet() {
     App.sheet('Add to Home Screen', '<p class="lead">Spotter works best as an app on your iPhone: full screen, offline, and your iPhone keeps your progress safe.</p>' +
-      '<div class="card"><ol class="steps"><li>Open this page in Safari</li><li>Tap the Share button, the square with the arrow</li><li>Tap “Add to Home Screen”</li><li>Tap Add</li></ol></div>' +
+      '<div class="card"><ol class="steps"><li>Open this page in Safari</li><li>Tap Share (the square with the arrow, or in the ••• menu)</li><li>Tap “Add to Home Screen”, leave “Open as Web App” on, then tap Add</li><li>Open Spotter from its new icon</li></ol></div>' +
+      '<div class="callout callout--blue">' + icon('info') + '<div>The Home Screen app keeps its own copy of your data, separate from Safari. Bring your Iron Log history in from the app itself, after you’ve opened it from the icon.</div></div>' +
       '<p class="fn">Safari can clear data for sites you haven’t opened in a while. Once Spotter is on your Home Screen, that doesn’t happen.</p>', { foot: btn('Done, hide this', 'dismissInstall', null, 'btn--block btn--tinted') });
   }
 

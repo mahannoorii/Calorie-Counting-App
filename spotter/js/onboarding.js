@@ -503,6 +503,14 @@
       pickTick(); rerender();
     },
     // An Iron Log backup: history in, and the questions it already answers filled in.
+    ilSync(el) {
+      const f = el.files && el.files[0]; if (!f) return;
+      App.Import.sync(f).then((r) => {
+        el.value = ''; App.closeLayer(true); App.render();
+        App.sound(r.added ? 'set' : 'tick'); App.haptic('success');
+        App.toast(r.added ? r.added + ' new ' + App.plural(r.added, 'session') + ' from Iron Log' + (r.next ? '. Next up: ' + r.next : '') : 'Already up to date with Iron Log', 'check');
+      }).catch(() => { el.value = ''; App.toast('That file didn’t look like an Iron Log backup', 'alert'); });
+    },
     obImport(el) {
       const f = el.files && el.files[0]; if (!f) return;
       App.Import.readFile(f).then((imp) => {

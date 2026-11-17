@@ -100,6 +100,19 @@ instead of chips). In the claude.ai preview you can **send a photo of the menu i
 Claude picks the three best dishes for your goals from what that restaurant actually serves,
 with the requests to make when you order.
 
+### iPhone Duo, folded or unfolded
+
+- **Folded** (the outer screen, about 466 × 678 pt): the same one-column app. The screen is
+  short, so in a session the photo shrinks and your sets stay in view without scrolling.
+- **Open like a book** (about 951 × 669 pt): Today, Train and Eat go to two columns, and the
+  guided session puts the machine and how-to on the left and your sets on the right. Sheets
+  float in the middle like on an iPad.
+- **Open and held upright** (about 669 × 951 pt): one roomier column.
+- **Folding or unfolding mid-session** just reflows the screen; nothing reloads. Every edge
+  respects the side safe areas (the status bar can sit in a column on the camera side), the
+  Home Screen app turns with the phone, and when Safari's viewport segments are turned on, the
+  two columns meet at the fold.
+
 ### Keeping you going
 
 The weekly barbell loads as you train and eat well; a fully loaded bar locks for a perfect
@@ -119,8 +132,10 @@ streaks, halfway). Rewards set by someone close to you unlock at weeks 2, 4 and 
 ## Open it on an iPhone
 
 1. Open the GitHub Pages link in **Safari** (see *Publishing* below).
-2. Tap the **Share** button, then **Add to Home Screen**, then **Add**.
-3. Open Spotter from the Home Screen.
+2. Tap **Share** (the square with the arrow, or in the ••• menu), then **Add to Home Screen**.
+   Leave **Open as Web App** on, then tap **Add**.
+3. Open Spotter from the Home Screen, and bring your Iron Log history in from there. The Home
+   Screen app keeps its own data, separate from Safari.
 
 Adding it to the Home Screen matters: Safari can clear data for websites you haven't
 opened in a while, but not for Home Screen apps. You can also copy a backup code from
@@ -136,6 +151,11 @@ worked out from the sessions they've logged.
   backup file. Every logged session comes across with its weights, reps and personal
   records, and you can keep running your own program: it carries on from the session after
   your last one.
+- **Using both apps for a while?** Export a fresh backup from Iron Log and tap **Update from
+  Iron Log** (*Train → More*, or *Profile → Your data*). Only sessions that are new come in;
+  a session you logged in both apps on the same day counts once. Sessions done in Iron Log
+  tick off that day's plan, and the sessions still ahead carry on from the last one you did,
+  wherever you logged it.
 - In *Profile → Prototype tools*:
   - **Fill in two weeks** pretends the plan started two weeks ago.
   - **Pretend today is** jumps ahead a few days so you can see how the plan and the coach react.

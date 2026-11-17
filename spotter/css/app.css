@@ -801,3 +801,76 @@ input[type="date"].input { display: flex; align-items: center; }
 .tags .tag--pick { background: var(--accent-soft); color: var(--accent-text); }
 .welcome__import { display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; font-size: 15px; color: var(--label-2); }
 .welcome__import .ic-sm { width: 16px; height: 16px; }
+
+/* ── iPhone Duo: folded and unfolded ──────────────────────────────────────
+   Folded, the outer screen is a normal width but short (about 466 × 678 pt), so the guided
+   session keeps the sets in view. Unfolded, the inner screen is nearly square: held open like
+   a book it's about 951 × 669 pt and pages and the session go to two columns; held upright
+   (669 × 951) it's one roomy column. The status bar can sit in a column on the camera side,
+   so every edge respects the side safe areas too. It's all CSS, so folding or unfolding
+   mid-session just reflows. */
+:root { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.tabbar, .compact, .dock, .sx, .search, .summary, .prpop, .layer:not(.layer--dialog) {
+  padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px);
+}
+.layer--dialog { padding-left: calc(28px + env(safe-area-inset-left, 0px)); padding-right: calc(28px + env(safe-area-inset-right, 0px)); }
+.ob__foot { padding-left: calc(var(--g) + env(safe-area-inset-left, 0px)); padding-right: calc(var(--g) + env(safe-area-inset-right, 0px)); }
+.restbar { left: calc(12px + env(safe-area-inset-left, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); }
+.page__col, .sx__panes, .sx__pane { display: contents; }
+
+/* Short screens (the folded Duo, an iPhone SE): a shorter photo so the sets show without scrolling */
+@media (max-height: 720px) and (max-width: 759px) {
+  .photo { aspect-ratio: 21 / 8; }
+  .photo > svg { width: 22%; }
+  .ex-h__title { font-size: 26px; }
+  .sx__body { gap: 16px; }
+  .welcome__art { min-height: 160px; }
+}
+
+/* Roomier screens (the unfolded Duo held upright, an iPad): one wider column, sheets float */
+@media (min-width: 640px) {
+  #app { max-width: 680px; }
+  :root { --g: 24px; }
+  .tabbar__inner, .dock__inner { max-width: 680px; }
+  .sx__nav, .sx__bar, .sx__body, .summary__inner, .search__body, .search__bar { max-width: 680px; }
+  .bubble { max-width: min(80%, 520px); }
+  .ob, .welcome, .build, .reveal { max-width: 620px; margin-left: auto; margin-right: auto; width: 100%; }
+  .layer:not(.layer--dialog) { align-items: center; padding-top: 24px; padding-bottom: 24px; }
+  .sheet { max-width: 620px; border-radius: 18px; padding-bottom: 0; max-height: calc(100dvh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+  .sheet--tall { height: calc(100dvh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+  .sheet__grab { visibility: hidden; }
+  .photo { max-height: 260px; width: 100%; }
+}
+
+/* Wide screens (the unfolded Duo held open like a book): two columns */
+@media (min-width: 760px) {
+  #app { max-width: 1080px; }
+  :root { --g: 28px; }
+  .page { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 24px; align-items: start; }
+  .page > :not(.page__col) { grid-column: 1 / -1; }
+  .page__col { display: grid; gap: 30px; min-width: 0; align-content: start; }
+  .tabbar__inner, .dock__inner { max-width: 720px; }
+  .coachview .thread { max-width: 760px; width: 100%; margin: 0 auto; }
+
+  /* the guided session: the machine on the left, your sets on the right */
+  .sx__nav, .sx__bar { max-width: 1040px; }
+  .sx__body:has(.sx__panes) { max-width: 1040px; }
+  .sx__panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+  .sx__pane { display: grid; gap: 20px; min-width: 0; align-content: start; }
+  .sx__pane:first-child { position: sticky; top: 10px; }
+  .sx:has(.sx__panes) .sx__foot-inner { max-width: 1040px; padding-left: calc(50% + 14px); }
+}
+/* Open like a book but short: a smaller photo and title so the sets sit up top */
+@media (min-width: 760px) and (max-height: 760px) {
+  .sx__pane:first-child .photo { aspect-ratio: 16 / 8; }
+  .head__title { font-size: 30px; }
+}
+/* Half-folded like a book (Safari's viewport segments): the two columns meet at the fold */
+@media (horizontal-viewport-segments: 2) {
+  #app { max-width: none; }
+  .page, .sx__panes {
+    grid-template-columns: calc(env(viewport-segment-width 0 0) - 2 * var(--g)) calc(env(viewport-segment-width 1 0) - 2 * var(--g));
+    column-gap: calc(2 * var(--g) + env(viewport-segment-left 1 0) - env(viewport-segment-right 0 0));
+  }
+  .sx__body:has(.sx__panes), .sx:has(.sx__panes) .sx__foot-inner { max-width: none; }
+}
