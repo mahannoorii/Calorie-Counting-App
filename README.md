@@ -102,9 +102,18 @@ Out of the box the coach is a script: it checks in, and it understands a handful
   session, best, estimated one-rep max and its trend over eight weeks), your gym's
   equipment and the last fortnight of eating. For deeper questions it pulls a lift's full
   history.
-- **It does things.** It can move, skip, ease or shorten a session, swap an exercise in
-  your plan (only for moves your gym can do), set the weight and reps you'll see next time,
-  log food and put a restaurant's picks on screen. Each change shows as a line in the chat.
+- **It reshapes your program.** Tell it your situation (an injury, a physio's advice, a new
+  schedule, different equipment) and it adjusts everything to suit: renames sessions,
+  changes their exercises, order, sets, reps and rest, caps a weight ("leg curl, 45 kg max")
+  or adds a note shown during the session, adds or removes sessions, changes your training
+  days and rotation, extends the plan, adds exercises the library doesn't have and updates
+  your gym's equipment. It can also move, skip, ease or shorten one day, set next time's
+  weight and reps, log food and put a restaurant's picks on screen.
+- **Every change shows** as a line in the chat, with an **Undo changes** button for the round.
+- **It remembers.** Injuries, physio advice, limits and preferences go into notes it keeps
+  between chats (listed, and removable, in *Profile → Coach → Claude coach*).
+- If the coach has tailored your plan, *Change my plan* warns before rebuilding it from your
+  answers.
 - **It reads menu photos** on the live app too, not just in the claude.ai preview.
 - **Replies stream in** like a text, with quick-reply chips when they help.
 
@@ -152,6 +161,13 @@ streaks, halfway). Rewards set by someone close to you unlock at weeks 2, 4 and 
   exercise shows a drawing, and you can add your own photo.
 - **The Claude coach** needs your own API key (see above); without one it's the script.
 - **A live human coach**, notifications, accounts and syncing between phones.
+
+### Built to stay put
+
+The page itself never scrolls. The app is a fixed frame the size of the visible screen: the
+content scrolls inside it, and the coach's message box and the tab bar are rows underneath,
+so they can't drift when you scroll, bounce at the ends, open the keyboard or fold the phone.
+Sheets, search and the guided session follow the visible area the same way.
 
 ## Open it on an iPhone
 
